@@ -16,6 +16,7 @@ class MLP(nn.Module):
         hidden_size: int,
         output_size: int,
         num_layers: int,
+        *,
         activation_factory: ModuleFactory = nn.GELU,
     ):
         super().__init__()
