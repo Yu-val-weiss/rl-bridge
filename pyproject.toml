@@ -1,0 +1,22 @@
+[project]
+name = "rl-bridge"
+authors = [
+    {name = "Carla Biermann", email = "cb2318@cam.ac.uk"},
+    {name = "Yuval Weiss", email = "yw580@cam.ac.uk"},
+]
+readme = "README.md"
+requires-python = ">=3.9,<3.10"
+dependencies = [
+    "torch (>=2.6.0,<3.0.0)",
+    "open-spiel (>=1.5,<2.0)",
+    "numpy (>=2.0,<3.0)",
+    "torchrl (>=0.7.1,<0.8.0)"
+]
+
+[tool.poetry]
+package-mode = false
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
