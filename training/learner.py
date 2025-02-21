@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torchrl.data import ReplayBuffer
+from torchrl.data import PrioritizedReplayBuffer
 from models.policy_network import PolicyNetwork
 from models.value_network import ValueNetwork
 
@@ -12,7 +12,7 @@ class Learner:
         self,
         policy_net: nn.Module,
         value_net: nn.Module,
-        replay_buffer: ReplayBuffer,
+        replay_buffer: PrioritizedReplayBuffer,
         lr_pol: float,
         lr_val: float,
     ):
@@ -24,7 +24,7 @@ class Learner:
 
     def train(self, batch_size: int, beta: float):
         # Sample a mini-batch of transitions from the replay buffer
-        batch = self.replay_buffer.sample(batch_size)
+        batch = self.replay_buffer.sample(batch_size, return_info=True)
         states, actions, rewards, old_policies, old_values = zip(*batch)
 
         states = torch.tensor(states, dtype=torch.float32)
@@ -68,7 +68,7 @@ class Learner:
         self.value_optimizer.step()
 
         # Update priorities in the replay buffer based on advantage
-        priorities = torch.abs(advantages).detach().numpy()
+        priorities = torch.abs(advantages).detach()
         for idx, priority in enumerate(priorities):
             self.replay_buffer.update_priority(idx, priority)
 
@@ -77,7 +77,9 @@ class Learner:
 if __name__ == "__main__":
     state_dim = 4  # set right values
     action_dim = 2  # set right values
-    replay_buffer = ReplayBuffer()
+    replay_buffer = PrioritizedReplayBuffer(
+        alpha=0.7, beta=0.9
+    )  # dummy values for alpha and beta
     policy_net = PolicyNetwork(input_size=state_dim, output_size=action_dim)
     value_net = ValueNetwork(input_size=state_dim, hidden_size=2048)
     learner = Learner(policy_net, value_net, replay_buffer, lr_pol=0.001, lr_val=0.001)
