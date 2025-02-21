@@ -66,3 +66,37 @@ def test_writer_blocks_readers(dummy_resource):
         t.join()
 
     assert obs == [1] * 5
+
+
+def test_writer_cannot_rewrite_if_reader_waiting():
+    lock = MRSWLock()
+    writer_attempts = []
+    reads = []
+
+    def writer():
+        with lock.write():
+            writer_attempts.append("first_write")
+            time.sleep(0.0001)  # simulate training time
+        with lock.write():
+            writer_attempts.append("second_write")
+            time.sleep(0.0001)  # simulate training time
+
+    def reader():
+        with lock.read():
+            reads.append(writer_attempts[-1])
+
+    writer_thread = threading.Thread(target=writer)
+    num_threads = 5
+    reader_threads = [threading.Thread(target=reader) for _ in range(num_threads)]
+
+    writer_thread.start()
+    for t in reader_threads:
+        t.start()
+
+    writer_thread.join()
+    for t in reader_threads:
+        t.join()
+
+    assert reads == ["first_write"] * num_threads, (
+        "Writer was able to rewrite before reader finished!"
+    )
