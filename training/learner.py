@@ -1,5 +1,4 @@
 import copy
-import functools
 from typing import Any, Literal, Union
 
 import torch
@@ -101,8 +100,6 @@ class SharedLearner:
         with self.lock.write():
             return self.learner.train_step(batch_size, beta)
 
-
-functools.update_wrapper(SharedLearner.train_step, Learner.train_step)
 
 # Usage:
 if __name__ == "__main__":
