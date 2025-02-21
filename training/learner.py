@@ -1,131 +1,91 @@
-import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-from torch.distributions import Categorical
-from torchrl.data import ReplayBuffer
+from torchrl.data import PrioritizedReplayBuffer
 from models.policy_network import PolicyNetwork
 from models.value_network import ValueNetwork
-import gym
-import torch.nn.functional as F
 
 
-def train(policy_net: PolicyNetwork, value_net: ValueNetwork, replay_buffer: ReplayBuffer, policy_optimizer: optim.Optimizer, value_optimizer: optim.Optimizer, batch_size: int, beta: float):
-    for i in range(1, 1001):
-        batch = replay_buffer.sample(batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
+class Learner:
+    def __init__(
+        self,
+        policy_net: nn.Module,
+        value_net: nn.Module,
+        replay_buffer: PrioritizedReplayBuffer,
+        lr_pol: float,
+        lr_val: float,
+    ):
+        self.policy_net = policy_net
+        self.value_net = value_net
+        self.replay_buffer = replay_buffer
+        self.policy_optimizer = optim.Adam(self.policy_net.parameters(), lr=lr_pol)
+        self.value_optimizer = optim.Adam(self.value_net.parameters(), lr=lr_val)
+
+    def train(self, batch_size: int, beta: float):
+        # Sample a mini-batch of transitions from the replay buffer
+        batch = self.replay_buffer.sample(batch_size, return_info=True)
+        states, actions, rewards, old_policies, old_values = zip(*batch)
 
         states = torch.tensor(states, dtype=torch.float32)
-        actions = torch.tensor(actions, dtype=torch.float32)
+        actions = torch.tensor(actions, dtype=torch.int64)
         rewards = torch.tensor(rewards, dtype=torch.float32)
-        next_states = torch.tensor(next_states, dtype=torch.float32)
-        dones = torch.tensor(dones, dtype=torch.float32)
+        old_policies = torch.tensor(old_policies, dtype=torch.float32)
+        old_values = torch.tensor(old_values, dtype=torch.float32)
 
-        # Update policy network
-        policy_optimizer.zero_grad()
-        action_probs = policy_net(states)
-        action_log_probs = torch.log(torch.sum(action_probs * actions, dim=1))
-        values = value_net(states).squeeze()
-        advantages = rewards - values
+        # Compute action probabilities and log probabilities
+        action_probs = self.policy_net(states)
+        action_log_probs = torch.log(
+            action_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
+        )
 
-        policy_loss = -torch.mean(action_log_probs * advantages)
-        entropy_loss = -torch.mean(action_probs * torch.log(action_probs))
+        # Value estimates
+        values = self.value_net(states).squeeze()
+        advantages = rewards - values.detach()
+
+        # Importance sampling ratio (πθ / πθ') - using stored policies from replay buffer
+        importance_sampling_ratio = action_probs.gather(
+            1, actions.unsqueeze(1)
+        ).squeeze(1) / old_policies.gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        # Policy network update
+        self.policy_optimizer.zero_grad()
+        # it should be the gradient of action_log_probs here, will debug later.
+        policy_loss = -torch.mean(
+            importance_sampling_ratio * action_log_probs * advantages
+        )
+        entropy_loss = -torch.mean(
+            torch.sum(action_probs * torch.log(action_probs + 1e-10), dim=1)
+        )  # Entropy term
         total_policy_loss = policy_loss + beta * entropy_loss
-
         total_policy_loss.backward()
-        policy_optimizer.step()
+        self.policy_optimizer.step()
 
-        # Update value network
-        value_optimizer.zero_grad()
-        values = value_net(states).squeeze()
-        value_loss = torch.mean((rewards - values) ** 2)
-
+        # Value network update
+        self.value_optimizer.zero_grad()
+        value_loss = F.mse_loss(values, rewards)
         value_loss.backward()
-        value_optimizer.step()
+        self.value_optimizer.step()
 
-        # Update priorities
-        for idx, (state, action, reward, next_state, done) in enumerate(batch):
-            priority = abs(reward - value_net(state.unsqueeze(0)).item())
-            replay_buffer.update_priority(idx, priority)
-
-# Actor critic function from https://medium.com/@dixitaniket76/advantage-actor-critic-a2c-algorithm-explained-and-implemented-in-pytorch-dc3354b60b50
-def actor_critic(actor, critic, episodes, max_steps=2000, gamma=0.99, lr_actor=1e-3, lr_critic=1e-3):
-    optimizer_actor = optim.AdamW(actor.parameters(), lr=lr_actor)
-    optimizer_critic = optim.AdamW(critic.parameters(), lr=lr_critic)
-    stats = {'Actor Loss': [], 'Critic Loss': [], 'Returns': []}
-
-    env = gym.make('CartPole-v1')
-    input_size = env.observation_space.shape[0]
-    num_actions = env.action_space.n
-
-    for episode in range(1, episodes + 1):
-        state = env.reset()[0]
-        ep_return = 0
-        done = False
-        step_count = 0
-
-        while not done and step_count < max_steps:
-            state_tensor = torch.FloatTensor(state)
-            
-            # Actor selects action
-            action_probs = actor(state_tensor)
-            dist = Categorical(action_probs)
-            action = dist.sample()
-            
-            # Take action and observe next state and reward
-            next_state, reward, done, _,_ = env.step(action.item())
-            
-            # Critic estimates value function
-            value = critic(state_tensor)
-            next_value = critic(torch.FloatTensor(next_state))
-            
-            # Calculate TD target and Advantage
-            td_target = reward + gamma * next_value * (1 - done)
-            advantage = td_target - value
-            
-            # Critic update with MSE loss
-            critic_loss = F.mse_loss(value, td_target.detach())
-            optimizer_critic.zero_grad()
-            critic_loss.backward()
-            optimizer_critic.step()
-            
-            # Actor update
-            log_prob = dist.log_prob(action)
-            actor_loss = -log_prob * advantage.detach()
-            optimizer_actor.zero_grad()
-            actor_loss.backward()
-            optimizer_actor.step()
-            
-            # Update state, episode return, and step count
-            state = next_state
-            ep_return += reward
-            step_count += 1
-
-        # Record statistics
-        stats['Actor Loss'].append(actor_loss.item())
-        stats['Critic Loss'].append(critic_loss.item())
-        stats['Returns'].append(ep_return)
-
-        # Print episode statistics
-        print(f"Episode {episode}: Actor Loss: {actor_loss.item():.4f}, Critic Loss: {critic_loss.item():.4f}, Return: {ep_return}, Steps: {step_count}")
-
-    env.close()
-    return stats
+        # Update priorities in the replay buffer based on advantage
+        priorities = torch.abs(advantages).detach()
+        for idx, priority in enumerate(priorities):
+            self.replay_buffer.update_priority(idx, priority)
 
 
+# Usage:
 if __name__ == "__main__":
-    state_dim = 4
-    action_dim = 2
-    replay_buffer = ReplayBuffer(size=10000)
-    policy_net = PolicyNetwork(state_dim, action_dim)
-    value_net = ValueNetwork(state_dim)
-    policy_optimizer = optim.Adam(policy_net.parameters(), lr=0.001)
-    value_optimizer = optim.Adam(value_net.parameters(), lr=0.001)
+    state_dim = 4  # set right values
+    action_dim = 2  # set right values
+    replay_buffer = PrioritizedReplayBuffer(
+        alpha=0.7, beta=0.9
+    )  # dummy values for alpha and beta
+    policy_net = PolicyNetwork(input_size=state_dim, output_size=action_dim)
+    value_net = ValueNetwork(input_size=state_dim, hidden_size=2048)
+    learner = Learner(policy_net, value_net, replay_buffer, lr_pol=0.001, lr_val=0.001)
+
     batch_size = 32
     beta = 0.01
 
-    # Train using the original train function
-    train(policy_net, value_net, replay_buffer, policy_optimizer, value_optimizer, batch_size, beta)
-
-    # Train using the actor_critic function
-    actor_critic(policy_net, value_net, episodes=1000)
+    for i in range(1000):
+        learner.train(batch_size, beta)
