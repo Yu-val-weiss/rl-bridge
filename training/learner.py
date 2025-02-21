@@ -1,10 +1,17 @@
+import copy
+import functools
+from typing import Any, Literal, Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchrl.data import PrioritizedReplayBuffer
+
 from models.policy_network import PolicyNetwork
 from models.value_network import ValueNetwork
+from utils import get_device
+from utils.mrsw import MRSWLock
 
 
 class Learner:
@@ -21,8 +28,9 @@ class Learner:
         self.replay_buffer = replay_buffer
         self.policy_optimizer = optim.Adam(self.policy_net.parameters(), lr=lr_pol)
         self.value_optimizer = optim.Adam(self.value_net.parameters(), lr=lr_val)
+        self.device = get_device()
 
-    def train(self, batch_size: int, beta: float):
+    def train_step(self, batch_size: int, beta: float):
         # Sample a mini-batch of transitions from the replay buffer
         batch = self.replay_buffer.sample(batch_size, return_info=True)
         states, actions, rewards, old_policies, old_values = zip(*batch)
@@ -73,6 +81,29 @@ class Learner:
             self.replay_buffer.update_priority(idx, priority)
 
 
+class SharedLearner:
+    __slots__ = ("lock", "learner")
+
+    def __init__(self, learner: Learner) -> None:
+        self.lock = MRSWLock()
+        self.learner = learner
+
+    def get_state_dicts(
+        self,
+    ) -> dict[Union[Literal["policy_net"], Literal["value_net"]], dict[str, Any]]:
+        with self.lock.read():
+            return {
+                "policy_net": copy.deepcopy(self.learner.policy_net.state_dict()),
+                "value_net": copy.deepcopy(self.learner.policy_net.state_dict()),
+            }
+
+    def train_step(self, batch_size: int, beta: float):
+        with self.lock.write():
+            return self.learner.train_step(batch_size, beta)
+
+
+functools.update_wrapper(SharedLearner.train_step, Learner.train_step)
+
 # Usage:
 if __name__ == "__main__":
     state_dim = 4  # set right values
@@ -88,4 +119,4 @@ if __name__ == "__main__":
     beta = 0.01
 
     for i in range(1000):
-        learner.train(batch_size, beta)
+        learner.train_step(batch_size, beta)
