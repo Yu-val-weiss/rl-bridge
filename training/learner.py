@@ -70,6 +70,8 @@ class Learner:
         value_loss.backward()
         self.value_optimizer.step()
 
+        # TODO: combine .step() calls, using write lock
+
         # Update priorities in the replay buffer based on advantage
         priorities = torch.abs(advantages).detach()
         for idx, priority in enumerate(priorities):
