@@ -1,6 +1,3 @@
-import copy
-from typing import Any, Literal, Union
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +7,6 @@ from torchrl.data import PrioritizedReplayBuffer
 from models.policy_network import PolicyNetwork
 from models.value_network import ValueNetwork
 from utils import get_device
-from utils.mrsw import MRSWLock
 
 
 class Learner:
@@ -78,27 +74,6 @@ class Learner:
         priorities = torch.abs(advantages).detach()
         for idx, priority in enumerate(priorities):
             self.replay_buffer.update_priority(idx, priority)
-
-
-class SharedLearner:
-    __slots__ = ("lock", "learner")
-
-    def __init__(self, learner: Learner) -> None:
-        self.lock = MRSWLock()
-        self.learner = learner
-
-    def get_state_dicts(
-        self,
-    ) -> dict[Union[Literal["policy_net"], Literal["value_net"]], dict[str, Any]]:
-        with self.lock.read():
-            return {
-                "policy_net": copy.deepcopy(self.learner.policy_net.state_dict()),
-                "value_net": copy.deepcopy(self.learner.policy_net.state_dict()),
-            }
-
-    def train_step(self, batch_size: int, beta: float):
-        with self.lock.write():
-            return self.learner.train_step(batch_size, beta)
 
 
 # Usage:
