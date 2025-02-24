@@ -76,10 +76,10 @@ def test_writer_cannot_rewrite_if_reader_waiting():
     def writer():
         with lock.write():
             writer_attempts.append("first_write")
-            time.sleep(0.0001)  # simulate training time
+            time.sleep(0.1)  # simulate training time
         with lock.write():
             writer_attempts.append("second_write")
-            time.sleep(0.0001)  # simulate training time
+            time.sleep(0.1)  # simulate training time
 
     def reader():
         with lock.read():
