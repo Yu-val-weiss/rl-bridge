@@ -18,13 +18,6 @@ jobs:
       - name: Install poetry
         run: pipx install poetry
 
-      - name: Configure poetry
-        run: |
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project false
-          poetry config cache-dir ~/.poetry
-          poetry config virtualenvs.path ~/.poetry/venv
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
