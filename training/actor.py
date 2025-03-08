@@ -1,52 +1,98 @@
+import threading
+from collections import deque
+from typing import List
+
 import numpy as np
-import random
 import torch
-from torchrl.data import ReplayBuffer, TensorDictReplayBuffer
+import torch.nn as nn
+from open_spiel.python.rl_environment import Environment, TimeStep
+from torchrl.data import PrioritizedReplayBuffer
+
 
 class Actor:
-    def __init__(self, policy_net, value_net, replay_buffer, sync_freq):
+    def __init__(
+        self,
+        actor_id: int,
+        policy_net: nn.Module,
+        value_net: nn.Module,
+        replay_buffer: PrioritizedReplayBuffer,
+        sync_freq: int,
+    ) -> None:
+        self.actor_id = actor_id
         self.policy_net = policy_net
         self.value_net = value_net
         self.replay_buffer = replay_buffer
-        self.local_buffer = []
         self.sync_freq = sync_freq
-        self.steps = 0
 
-    def synchronize(self, learner_policy_net, learner_value_net):
-        #self.policy_net.load_state_dict(learner_policy_net.state_dict())
-        #self.value_net.load_state_dict(learner_value_net.state_dict())
+        self.env = Environment("tiny_bridge_4p")
+        self.step_count = 0
+        self.local_buffer = deque()
+        self.replay_buffer_lock = threading.Lock()
+        self.policy_net_lock = threading.Lock()
+        self.value_net_lock = threading.Lock()
+        self.max_rounds = 10
+
+    # TODO: implement synchronization
+    def synchronize(self):
         pass
 
-    def sample_action(self, state):
-        with torch.no_grad():
-            action_probs = self.policy_net(state)
-        action = np.random.choice(len(action_probs), p=action_probs.numpy())
-        return action
+    def sample_deal(self) -> TimeStep:
+        """Sample a bridge deal (initial state) from the environment."""
+        return self.env.reset()
 
-    def run(self, env, learner_policy_net, learner_value_net, T):
-        for i in range(1, 1000):
-            if i % self.sync_freq == 0:
-                self.synchronize(learner_policy_net, learner_value_net)
+    def play_bidding_step(self, time_step: TimeStep) -> TimeStep:
+        """Plays through one bidding step (one action of one player)."""
+        current_player = time_step.observations["current_player"]
+        obs = torch.tensor(
+            time_step.observations["info_state"][current_player], dtype=torch.float32
+        )
+        legal_actions = time_step.observations["legal_actions"][current_player]
 
-            state = env.reset()
-            for t in range(1, T + 1):
-                action = self.sample_action(state)
-                next_state, reward, done, _ = env.step(action)
-                value_estimation = self.value_net(state)
+        with self.policy_net_lock:
+            action_probs = self.policy_net(obs).detach().numpy()
 
-                self.local_buffer.append((state, action, value_estimation, reward, next_state, done))
-                state = next_state
+        # Only sample an action from legal actions
+        # Could replace this implementation by masking idea. This approach was straightforward now, hence I implemented it.
+        legal_action_probs = action_probs[legal_actions]
+        legal_action_probs /= legal_action_probs.sum()  # Normalize probabilities
+        action = np.random.choice(legal_actions, p=legal_action_probs)
 
-                if done:
-                    break
+        with self.value_net_lock:
+            value_estimate = self.value_net(obs).item()
 
-            for state, action, value_estimation, reward, next_state, done in self.local_buffer:
-                self.replay_buffer.add(state=state, action=action, reward=reward, next_state=next_state, done=done)
+        self.local_buffer.append((obs, action, value_estimate, action_probs))
 
-            self.local_buffer = []
+        time_step = self.env.step([action])
 
-policy_net = 
-value_net = 
-replay_buffer = TensorDictReplayBuffer(storage=ReplayBuffer(storage_size=10000))
-actor = Actor(policy_net, value_net, replay_buffer, sync_freq=100)
-actor.run(env, learner_policy_net, learner_value_net, T=10)
+        return time_step
+
+    def play_bidding_phase(self, time_step: TimeStep) -> TimeStep:
+        """Plays through the bidding phase using policy network."""
+        while not time_step.last():
+            time_step = self.play_bidding_step(time_step)
+
+        return time_step
+
+    def store_transitions(self, rewards: List[float]) -> None:
+        """Store transitions in shared replay buffer for all players."""
+        transitions = []  # Collect transitions before extending the buffer
+
+        while self.local_buffer:
+            obs, action, value, policy_probs = self.local_buffer.popleft()
+
+            for reward in rewards:
+                transitions.append((obs, action, reward, policy_probs, value))
+
+        with self.replay_buffer_lock:
+            self.replay_buffer.extend(transitions)
+
+    def run(self) -> None:
+        """Main loop of the Actor thread."""
+        while self.step_count < self.max_rounds:
+            self.step_count += 1
+            # if self.step_count % self.sync_freq == 0:
+            # self.synchronize()
+
+            deal = self.sample_deal()
+            final_time_step = self.play_bidding_phase(deal)
+            self.store_transitions(final_time_step.rewards)
