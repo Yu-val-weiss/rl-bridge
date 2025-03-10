@@ -6,16 +6,23 @@ from torchrl.data import ListStorage, PrioritizedReplayBuffer
 
 from models.policy_network import PolicyNetwork
 from training.actor import Actor
+from utils import CloneableNetwork, MRSWLock
 
 
-class DummyNet(nn.Module):
+class DummyNet(CloneableNetwork):
     def __init__(self, input_size, output_size):
         super().__init__()
+        self.input_size = input_size
         self.output_size = output_size
         self.fc = nn.Linear(input_size, output_size)
 
     def forward(self, x):
         return torch.ones(self.output_size)  # Dummy uniform output
+
+    def clone(self) -> "DummyNet":
+        model = DummyNet(self.input_size, self.output_size)
+        model.load_state_dict(self.state_dict())
+        return model
 
 
 @pytest.fixture
@@ -52,6 +59,7 @@ def actor(replay_buffer, policy_net, mock_value_net):
         value_net=mock_value_net,
         replay_buffer=replay_buffer,
         sync_freq=10,
+        net_lock=MRSWLock(),
     )
     return actor
 

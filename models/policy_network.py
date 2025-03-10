@@ -2,11 +2,17 @@ import torch
 from torch import nn
 
 from models.mlp import MLP
+from utils import CloneableNetwork
 
 
-class PolicyNetwork(nn.Module):
+class PolicyNetwork(CloneableNetwork["PolicyNetwork"]):
     def __init__(self, output_size, input_size=480, hidden_size=2048):
         super().__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+
         # 4 layer multilayer perceptron, with gelu activation and softmax
         self.mlp = MLP(input_size, hidden_size, output_size, 4)
 
@@ -15,3 +21,12 @@ class PolicyNetwork(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.mlp(x)
         return self.softmax(x)
+
+    def clone(self) -> "PolicyNetwork":
+        new_model = PolicyNetwork(
+            input_size=self.input_size,
+            hidden_size=self.hidden_size,
+            output_size=self.output_size,
+        )
+        new_model.load_state_dict(self.state_dict())
+        return new_model

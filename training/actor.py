@@ -1,40 +1,51 @@
-import threading
+import contextlib
 from collections import deque
-from typing import List
+from typing import List, TypeVar
 
 import numpy as np
 import torch
-import torch.nn as nn
 from open_spiel.python.rl_environment import Environment, TimeStep
 from torchrl.data import PrioritizedReplayBuffer
+
+from utils import CloneableNetwork, MRSWLock
+
+PolicyNet = TypeVar("PolicyNet", bound=CloneableNetwork)
+ValueNet = TypeVar("ValueNet", bound=CloneableNetwork)
 
 
 class Actor:
     def __init__(
         self,
         actor_id: int,
-        policy_net: nn.Module,
-        value_net: nn.Module,
+        policy_net: CloneableNetwork[PolicyNet],
+        value_net: CloneableNetwork[ValueNet],
         replay_buffer: PrioritizedReplayBuffer,
         sync_freq: int,
+        net_lock: MRSWLock,
     ) -> None:
         self.actor_id = actor_id
-        self.policy_net = policy_net
-        self.value_net = value_net
+
+        self._policy_net = policy_net  # points to shared one, should not be used
+        self._value_net = value_net  # points to shared one, should not be used
+
+        self.synchronize(at_init=True)
+
         self.replay_buffer = replay_buffer
         self.sync_freq = sync_freq
 
         self.env = Environment("tiny_bridge_4p")
         self.step_count = 0
         self.local_buffer = deque()
-        self.replay_buffer_lock = threading.Lock()
-        self.policy_net_lock = threading.Lock()
-        self.value_net_lock = threading.Lock()
+
+        self.net_lock = net_lock
+
         self.max_rounds = 10
 
     # TODO: implement synchronization
-    def synchronize(self):
-        pass
+    def synchronize(self, *, at_init=False):
+        with self.net_lock.read() if not at_init else contextlib.nullcontext():
+            self.policy_net = self._policy_net.clone()
+            self.value_net = self._value_net.clone()
 
     def sample_deal(self) -> TimeStep:
         """Sample a bridge deal (initial state) from the environment."""
@@ -48,8 +59,7 @@ class Actor:
         )
         legal_actions = time_step.observations["legal_actions"][current_player]
 
-        with self.policy_net_lock:
-            action_probs = self.policy_net(obs).detach().numpy()
+        action_probs = self.policy_net(obs).detach().numpy()
 
         # Only sample an action from legal actions
         # Could replace this implementation by masking idea. This approach was straightforward now, hence I implemented it.
@@ -57,8 +67,7 @@ class Actor:
         legal_action_probs /= legal_action_probs.sum()  # Normalize probabilities
         action = np.random.choice(legal_actions, p=legal_action_probs)
 
-        with self.value_net_lock:
-            value_estimate = self.value_net(obs).item()
+        value_estimate = self.value_net(obs).item()
 
         self.local_buffer.append((obs, action, value_estimate, action_probs))
 
@@ -83,8 +92,8 @@ class Actor:
             for reward in rewards:
                 transitions.append((obs, action, reward, policy_probs, value))
 
-        with self.replay_buffer_lock:
-            self.replay_buffer.extend(transitions)
+        # no lock as replay buffer should be thread safe
+        self.replay_buffer.extend(transitions)
 
     def run(self) -> None:
         """Main loop of the Actor thread."""
