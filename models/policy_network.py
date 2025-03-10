@@ -3,6 +3,7 @@ from torch import nn
 
 from utils import get_device
 
+
 from .mlp import MLP
 from .network import Network
 
