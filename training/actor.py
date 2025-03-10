@@ -5,6 +5,7 @@ from typing import List, TypeVar
 import numpy as np
 import torch
 from open_spiel.python.rl_environment import Environment, TimeStep
+from torch import nn
 from torchrl.data import PrioritizedReplayBuffer
 
 from utils import CloneableNetwork, MRSWLock
@@ -14,6 +15,10 @@ ValueNet = TypeVar("ValueNet", bound=CloneableNetwork)
 
 
 class Actor:
+    # these are the local versions, no need to synchronise them
+    policy_net: nn.Module
+    value_net: nn.Module
+
     def __init__(
         self,
         actor_id: int,
