@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from models.mlp import MLP
-from utils import CloneableNetwork
+from utils import CloneableNetwork, get_device
 
 
 class PolicyNetwork(CloneableNetwork["PolicyNetwork"]):
@@ -17,6 +17,8 @@ class PolicyNetwork(CloneableNetwork["PolicyNetwork"]):
         self.mlp = MLP(input_size, hidden_size, output_size, 4)
 
         self.softmax = nn.Softmax(dim=-1)
+
+        self.to(get_device())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.mlp(x)
