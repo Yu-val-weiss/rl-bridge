@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 
+from utils import get_device
+
 from .mlp import MLP
 from .network import Network
 
@@ -17,6 +19,8 @@ class PolicyNetwork(Network["PolicyNetwork"]):
         self.mlp = MLP(input_size, hidden_size, output_size, 4)
 
         self.softmax = nn.Softmax(dim=-1)
+
+        self.to(get_device())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.mlp(x)

@@ -1,5 +1,7 @@
 import torch
 
+from utils import get_device
+
 from .mlp import MLP
 from .network import Network
 
@@ -13,6 +15,8 @@ class ValueNetwork(Network["ValueNetwork"]):
 
         # 4 layer multilayer perceptron, output size of 1
         self.mlp = MLP(self.input_size, self.hidden_size, 1, 4)
+
+        self.to(get_device())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.mlp(x).squeeze(-1)
