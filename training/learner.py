@@ -1,20 +1,23 @@
+import pathlib
+from typing import Optional
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchrl.data import PrioritizedReplayBuffer
 
-from models.policy_network import PolicyNetwork
-from models.value_network import ValueNetwork
+from models import Network, PolicyNetwork, ValueNetwork
 from utils import MRSWLock, get_device
 
 
 class Learner:
     def __init__(
         self,
-        policy_net: nn.Module,
-        value_net: nn.Module,
+        policy_net: Network,
+        value_net: Network,
         replay_buffer: PrioritizedReplayBuffer,
+        batch_size: int,
+        beta: float,
         lr_pol: float,
         lr_val: float,
         net_lock: MRSWLock,
@@ -22,15 +25,23 @@ class Learner:
         self.policy_net = policy_net
         self.value_net = value_net
         self.replay_buffer = replay_buffer
+
+        self.lr_pol = lr_pol
+        self.lr_val = lr_val
+
         self.policy_optimizer = optim.Adam(self.policy_net.parameters(), lr=lr_pol)
         self.value_optimizer = optim.Adam(self.value_net.parameters(), lr=lr_val)
+
         self.net_lock = net_lock
+
+        self.batch_size = batch_size
+        self.beta = beta
 
         self.device = get_device()
 
-    def train_step(self, batch_size: int, beta: float):
+    def train_step(self):
         # Sample a mini-batch of transitions from the replay buffer
-        batch = self.replay_buffer.sample(batch_size, return_info=True)
+        batch = self.replay_buffer.sample(self.batch_size, return_info=True)
         states, actions, rewards, old_policies, old_values = zip(*batch)
 
         states = torch.tensor(states, dtype=torch.float32)
@@ -63,7 +74,7 @@ class Learner:
         entropy_loss = -torch.mean(
             torch.sum(action_probs * torch.log(action_probs + 1e-10), dim=1)
         )  # Entropy term
-        total_policy_loss = policy_loss + beta * entropy_loss
+        total_policy_loss = policy_loss + self.beta * entropy_loss
         total_policy_loss.backward()
 
         # Value network update
@@ -79,6 +90,92 @@ class Learner:
         priorities = torch.abs(advantages).detach()
         for idx, priority in enumerate(priorities):
             self.replay_buffer.update_priority(idx, priority)
+
+    def train_loop(self, checkpoint_path: str, checkpoint_every: int, max_steps: int):
+        ckp = pathlib.Path(checkpoint_path)
+        assert ckp.is_dir(), "checkpoint path must be a directory"
+        ckp.mkdir(parents=True, exist_ok=True)
+        for i in range(max_steps):
+            self.train_step()
+            if i % checkpoint_every == 0:
+                self.save(ckp / f"step_{i}")
+
+    def save(self, path: pathlib.Path):
+        checkpoint = {
+            "policy_net": {
+                "config": self.policy_net.get_init_config(),
+                "state_dict": self.policy_net.state_dict(),
+                "optimizer": self.policy_optimizer.state_dict(),
+                "lr": self.lr_pol,
+            },
+            "value_net": {
+                "config": self.value_net.get_init_config(),
+                "state_dict": self.value_net.state_dict(),
+                "optimizer": self.value_optimizer.state_dict(),
+                "lr": self.lr_val,
+            },
+            "beta": self.beta,
+            "batch_size": self.batch_size,
+        }
+        torch.save(checkpoint, path.with_suffix(".pt"))
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        checkpoint_path: str,
+        replay_buffer: PrioritizedReplayBuffer,
+        net_lock: MRSWLock,
+    ):
+        """
+        Create a new Learner instance from a checkpoint file.
+
+        Args:
+            checkpoint_path (str): Path to the checkpoint file
+            replay_buffer (PrioritizedReplayBuffer): Replay buffer to use
+            net_lock (MRSWLock, optional): Lock for thread safety
+
+        Returns:
+            Learner: A new instance initialized with the checkpoint's weights and config
+        """
+        checkpoint = torch.load(checkpoint_path, map_location=get_device())
+
+        # Create networks with correct architecture
+        policy_net = PolicyNetwork(**checkpoint["policy_net"]["config"])
+        value_net = ValueNetwork(**checkpoint["value_net"]["config"])
+
+        # Create learner instance
+        learner = cls(
+            policy_net=policy_net,
+            value_net=value_net,
+            replay_buffer=replay_buffer,
+            batch_size=checkpoint["batch_size"],
+            beta=checkpoint["beta"],
+            lr_pol=checkpoint["policy_net"]["lr"],
+            lr_val=checkpoint["value_net"]["lr"],
+            net_lock=net_lock,
+        )
+
+        # Load states
+        learner.load("", checkpoint)
+        return learner
+
+    def load(self, checkpoint_path: str, checkpoint_dict: Optional[dict] = None):
+        """
+        Load the learner's state from a checkpoint file.
+
+        Args:
+            checkpoint_path (str): Path to the checkpoint file
+        """
+        checkpoint = checkpoint_dict or torch.load(
+            checkpoint_path, map_location=self.device
+        )
+
+        self.policy_net.load_state_dict(checkpoint["policy_net"]["state_dict"])
+        self.value_net.load_state_dict(checkpoint["value_net"]["state_dict"])
+        self.policy_optimizer.load_state_dict(checkpoint["policy_net"]["optimizer"])
+        self.value_optimizer.load_state_dict(checkpoint["value_net"]["optimizer"])
+        self.beta = checkpoint["beta"]
+        self.batch_size = checkpoint["batch_size"]
 
 
 # Usage:
@@ -97,10 +194,9 @@ if __name__ == "__main__":
         lr_pol=0.001,
         lr_val=0.001,
         net_lock=MRSWLock(),
+        batch_size=32,
+        beta=0.01,
     )
 
-    batch_size = 32
-    beta = 0.01
-
     for i in range(1000):
-        learner.train_step(batch_size, beta)
+        learner.train_step()
