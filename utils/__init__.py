@@ -1,6 +1,5 @@
 import torch
 
-from .cloneable import CloneableNetwork
 from .mrsw import MRSWLock
 
 
@@ -12,4 +11,4 @@ def get_device() -> str:
     return "cpu"
 
 
-__all__ = ["CloneableNetwork", "get_device", "MRSWLock"]
+__all__ = ["get_device", "MRSWLock"]

@@ -1,10 +1,13 @@
 import torch
 
-from models.mlp import MLP
-from utils import CloneableNetwork, get_device
+from utils import get_device
 
 
-class ValueNetwork(CloneableNetwork["ValueNetwork"]):
+from .mlp import MLP
+from .network import Network
+
+
+class ValueNetwork(Network["ValueNetwork"]):
     def __init__(self, input_size=636, hidden_size=2048):
         super().__init__()
 
@@ -26,3 +29,6 @@ class ValueNetwork(CloneableNetwork["ValueNetwork"]):
         )
         new_model.load_state_dict(self.state_dict())
         return new_model
+
+    def get_init_config(self) -> dict[str, int]:
+        return dict(input_size=self.input_size, hidden_size=self.hidden_size)

@@ -8,10 +8,11 @@ from open_spiel.python.rl_environment import Environment, TimeStep
 from torch import nn
 from torchrl.data import PrioritizedReplayBuffer
 
-from utils import CloneableNetwork, MRSWLock
+from models import Network
+from utils import MRSWLock
 
-PolicyNet = TypeVar("PolicyNet", bound=CloneableNetwork)
-ValueNet = TypeVar("ValueNet", bound=CloneableNetwork)
+PolicyNet = TypeVar("PolicyNet", bound=Network)
+ValueNet = TypeVar("ValueNet", bound=Network)
 
 
 class Actor:
@@ -22,8 +23,8 @@ class Actor:
     def __init__(
         self,
         actor_id: int,
-        policy_net: CloneableNetwork[PolicyNet],
-        value_net: CloneableNetwork[ValueNet],
+        policy_net: Network[PolicyNet],
+        value_net: Network[ValueNet],
         replay_buffer: PrioritizedReplayBuffer,
         sync_freq: int,
         net_lock: MRSWLock,

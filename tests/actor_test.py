@@ -4,12 +4,12 @@ import torch.nn as nn
 from open_spiel.python.rl_environment import Environment
 from torchrl.data import ListStorage, PrioritizedReplayBuffer
 
-from models.policy_network import PolicyNetwork
+from models import Network, PolicyNetwork
 from training.actor import Actor
-from utils import CloneableNetwork, MRSWLock
+from utils import MRSWLock
 
 
-class DummyNet(CloneableNetwork):
+class DummyNet(Network):
     def __init__(self, input_size, output_size):
         super().__init__()
         self.input_size = input_size
