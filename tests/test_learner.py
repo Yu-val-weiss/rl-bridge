@@ -3,7 +3,9 @@ from pathlib import Path
 
 import pytest
 import torch
-from torchrl.data import ListStorage, PrioritizedReplayBuffer
+from tensordict import TensorDict
+from torchrl.data import LazyMemmapStorage, TensorDictReplayBuffer
+from torchrl.data.replay_buffers.samplers import PrioritizedSampler
 
 from models import PolicyNetwork, ValueNetwork
 from training.learner import Learner
@@ -18,9 +20,10 @@ def temp_dir():
 
 @pytest.fixture
 def replay_buffer():
-    return PrioritizedReplayBuffer(
-        alpha=0.1, beta=0.5, batch_size=32, storage=ListStorage(max_size=1000)
-    )
+    S = 1_000_000
+    sampler = PrioritizedSampler(S, 1.1, 1.0)
+    storage = LazyMemmapStorage(S)
+    return TensorDictReplayBuffer(storage=storage, sampler=sampler)
 
 
 POLICY_ARGS = dict(input_size=2, hidden_size=6, output_size=4)
@@ -110,3 +113,33 @@ def test_from_checkpoint(learner, temp_dir, replay_buffer):
     # Test network architectures
     assert type(new_learner.policy_net) is type(learner.policy_net)
     assert type(new_learner.value_net) is type(learner.value_net)
+
+
+def test_train_step(learner, replay_buffer):
+    """
+    Test that the train_step method of the Learner class can run without errors.
+    Adds dummy data to the replay buffer for the test.
+    """
+    # Create a batch of dummy transitions
+    dummy_state = torch.randn(2)
+    dummy_action = torch.tensor(0)
+    dummy_reward = torch.tensor(1.0)
+    dummy_old_policy = torch.tensor(0.5)
+    dummy_old_value = torch.tensor(0.3)
+
+    tensor_dict = TensorDict(
+        {
+            "state": torch.stack([dummy_state for _ in range(32)]),
+            "action": torch.stack([dummy_action for _ in range(32)]),
+            "reward": torch.stack([dummy_reward for _ in range(32)]),
+            "old_policy": torch.stack([dummy_old_policy for _ in range(32)]),
+            "old_value": torch.stack([dummy_old_value for _ in range(32)]),
+        },
+        batch_size=[32],
+    )
+
+    replay_buffer.extend(tensor_dict)
+
+    learner.train_step()
+
+    assert True

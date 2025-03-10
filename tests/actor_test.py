@@ -2,7 +2,9 @@ import pytest
 import torch
 import torch.nn as nn
 from open_spiel.python.rl_environment import Environment
-from torchrl.data import ListStorage, PrioritizedReplayBuffer
+from tensordict import MemoryMappedTensor, TensorDict
+from torchrl.data import LazyMemmapStorage, TensorDictReplayBuffer
+from torchrl.data.replay_buffers.samplers import PrioritizedSampler
 
 from models import Network, PolicyNetwork
 from training.actor import Actor
@@ -27,9 +29,10 @@ class DummyNet(Network):
 
 @pytest.fixture
 def replay_buffer():
-    return PrioritizedReplayBuffer(
-        alpha=0.1, beta=0, batch_size=32, storage=ListStorage(max_size=1000)
-    )
+    S = 1_000_000
+    sampler = PrioritizedSampler(S, 1.1, 1.0)
+    storage = LazyMemmapStorage(S)
+    return TensorDictReplayBuffer(storage=storage, sampler=sampler)
 
 
 @pytest.fixture
@@ -93,30 +96,63 @@ def test_store_transitions(actor):
 
     assert len(actor.replay_buffer) == 8  # 2 transitions * 4 rewards
 
-    stored_transitions = {
-        (
-            obs,
-            action,
-            reward,
-            tuple(policy_probs),
-            value,
-        )  # Convert list to tuple for hashability
-        for obs, action, reward, policy_probs, value in actor.replay_buffer._storage
-    }
+    stored_transitions = actor.replay_buffer[:]
 
-    expected_transitions = {
-        (
-            obs,
-            action,
-            reward,
-            tuple(policy_probs),
-            value,
-        )  # Convert list to tuple for hashability
-        for obs, action, value, policy_probs in test_data
-        for reward in rewards
-    }
+    expected_transitions = TensorDict(
+        {
+            "state": MemoryMappedTensor(
+                torch.tensor([[1.0], [1.0], [1.0], [1.0], [2.0], [2.0], [2.0], [2.0]])
+            ),
+            "action": MemoryMappedTensor(torch.tensor([0, 0, 0, 0, 1, 1, 1, 1])),
+            "reward": MemoryMappedTensor(
+                torch.tensor([1.0, 0.5, 0.3, 0.2, 1.0, 0.5, 0.3, 0.2])
+            ),
+            "old_policy": MemoryMappedTensor(
+                torch.tensor(
+                    [
+                        [0.1, 0.2, 0.3, 0.4],
+                        [0.1, 0.2, 0.3, 0.4],
+                        [0.1, 0.2, 0.3, 0.4],
+                        [0.1, 0.2, 0.3, 0.4],
+                        [0.2, 0.3, 0.4, 0.5],
+                        [0.2, 0.3, 0.4, 0.5],
+                        [0.2, 0.3, 0.4, 0.5],
+                        [0.2, 0.3, 0.4, 0.5],
+                    ]
+                )
+            ),
+            "old_value": MemoryMappedTensor(
+                torch.tensor([1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0])
+            ),
+        },
+        batch_size=[8],
+    )
 
-    assert stored_transitions == expected_transitions
+    def compare_tensordicts(td1, td2, rtol=1e-5, atol=1e-8):
+        if td1.keys() != td2.keys():
+            print("Mismatch in keys:", td1.keys(), td2.keys())
+            return False
+
+        for key in td1.keys():
+            tensor1 = td1[key]
+            tensor2 = td2[key]
+
+            if tensor1.dtype.is_floating_point:
+                if not torch.allclose(tensor1, tensor2, rtol=rtol, atol=atol):
+                    print(f"Mismatch in field: {key}")
+                    print("Tensor 1:", tensor1)
+                    print("Tensor 2:", tensor2)
+                    return False
+            else:
+                if not torch.equal(tensor1, tensor2):
+                    print(f"Mismatch in field: {key}")
+                    print("Tensor 1:", tensor1)
+                    print("Tensor 2:", tensor2)
+                    return False
+
+        return True
+
+    assert compare_tensordicts(stored_transitions, expected_transitions)
 
 
 def test_play_bidding_phase(actor):
