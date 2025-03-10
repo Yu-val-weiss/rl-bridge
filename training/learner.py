@@ -6,7 +6,7 @@ from torchrl.data import PrioritizedReplayBuffer
 
 from models.policy_network import PolicyNetwork
 from models.value_network import ValueNetwork
-from utils import get_device
+from utils import MRSWLock, get_device
 
 
 class Learner:
@@ -17,12 +17,15 @@ class Learner:
         replay_buffer: PrioritizedReplayBuffer,
         lr_pol: float,
         lr_val: float,
+        net_lock: MRSWLock,
     ):
         self.policy_net = policy_net
         self.value_net = value_net
         self.replay_buffer = replay_buffer
         self.policy_optimizer = optim.Adam(self.policy_net.parameters(), lr=lr_pol)
         self.value_optimizer = optim.Adam(self.value_net.parameters(), lr=lr_val)
+        self.net_lock = net_lock
+
         self.device = get_device()
 
     def train_step(self, batch_size: int, beta: float):
@@ -62,15 +65,15 @@ class Learner:
         )  # Entropy term
         total_policy_loss = policy_loss + beta * entropy_loss
         total_policy_loss.backward()
-        self.policy_optimizer.step()
 
         # Value network update
         self.value_optimizer.zero_grad()
         value_loss = F.mse_loss(values, rewards)
         value_loss.backward()
-        self.value_optimizer.step()
 
-        # TODO: combine .step() calls, using write lock
+        with self.net_lock.write():
+            self.policy_optimizer.step()
+            self.value_optimizer.step()
 
         # Update priorities in the replay buffer based on advantage
         priorities = torch.abs(advantages).detach()
@@ -87,7 +90,14 @@ if __name__ == "__main__":
     )  # dummy values for alpha and beta
     policy_net = PolicyNetwork(input_size=state_dim, output_size=action_dim)
     value_net = ValueNetwork(input_size=state_dim, hidden_size=2048)
-    learner = Learner(policy_net, value_net, replay_buffer, lr_pol=0.001, lr_val=0.001)
+    learner = Learner(
+        policy_net,
+        value_net,
+        replay_buffer,
+        lr_pol=0.001,
+        lr_val=0.001,
+        net_lock=MRSWLock(),
+    )
 
     batch_size = 32
     beta = 0.01
