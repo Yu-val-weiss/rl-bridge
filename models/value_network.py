@@ -1,7 +1,7 @@
 import torch
 
 from models.mlp import MLP
-from utils import CloneableNetwork
+from utils import CloneableNetwork, get_device
 
 
 class ValueNetwork(CloneableNetwork["ValueNetwork"]):
@@ -13,6 +13,8 @@ class ValueNetwork(CloneableNetwork["ValueNetwork"]):
 
         # 4 layer multilayer perceptron, output size of 1
         self.mlp = MLP(self.input_size, self.hidden_size, 1, 4)
+
+        self.to(get_device())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.mlp(x).squeeze(-1)
