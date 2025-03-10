@@ -1,12 +1,12 @@
 from abc import abstractmethod
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from torch import nn
 
-T = TypeVar("T", bound="CloneableNetwork")
+T = TypeVar("T", bound="Network")
 
 
-class CloneableNetwork(nn.Module, Generic[T]):
+class Network(nn.Module, Generic[T]):
     """Abstract class that defines a clone interface for deep copying neural network models."""
 
     @abstractmethod
@@ -16,4 +16,9 @@ class CloneableNetwork(nn.Module, Generic[T]):
         Returns:
             T: A deep copy of the model
         """
+        pass
+
+    @abstractmethod
+    def get_init_config(self) -> dict[str, Any]:
+        """Gets the config needed to initialise the class"""
         pass
