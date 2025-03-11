@@ -1,6 +1,8 @@
 import contextlib
+import logging
+import threading
 from collections import deque
-from typing import List, TypeVar
+from typing import List, Optional, TypeVar
 
 import numpy as np
 import torch
@@ -11,6 +13,7 @@ from torchrl.data import TensorDictReplayBuffer
 
 from models import Network
 from utils import MRSWLock, get_device
+from utils.data import ActorConfig
 
 PolicyNet = TypeVar("PolicyNet", bound=Network)
 ValueNet = TypeVar("ValueNet", bound=Network)
@@ -29,11 +32,14 @@ class Actor:
         replay_buffer: TensorDictReplayBuffer,
         sync_freq: int,
         net_lock: MRSWLock,
+        max_steps: int = 10,
     ) -> None:
         self.actor_id = actor_id
 
         self._policy_net = policy_net  # points to shared one, should not be used
         self._value_net = value_net  # points to shared one, should not be used
+
+        self.logger = logging.getLogger(f"actor_{actor_id}")
 
         self.synchronize(at_init=True)  # assigns self.policy_net and self.value_net
 
@@ -46,11 +52,14 @@ class Actor:
 
         self.net_lock = net_lock
 
-        self.max_rounds = 10
+        self.max_steps = max_steps
 
         self.device = get_device()
 
     def synchronize(self, *, at_init=False):
+        if not at_init:
+            self.logger.info(f"synchronising at time step {self.step_count}")
+
         with self.net_lock.read() if not at_init else contextlib.nullcontext():
             self.policy_net = self._policy_net.clone()
             self.value_net = self._value_net.clone()
@@ -134,14 +143,38 @@ class Actor:
             # add batch to replay buffer (thread safe)
             self.replay_buffer.extend(batch)
 
-    def run(self) -> None:
+    def run(self, stop_event: Optional[threading.Event] = None) -> None:
         """Main loop of the Actor thread."""
-        while self.step_count < self.max_rounds:
+        while (
+            stop_event is not None and not stop_event.is_set()
+        ) or self.step_count < self.max_steps:
+            self.logger.debug(f"step {self.step_count}")
             self.step_count += 1
             if self.step_count % self.sync_freq == 0:
-                # self.synchronize()
-                print("would sync now! TODO: need to actually synchronise!")
+                self.synchronize()
 
             deal = self.sample_deal()
             final_time_step = self.play_bidding_phase(deal)
             self.store_transitions(final_time_step.rewards)
+
+    @classmethod
+    def from_config(
+        cls,
+        policy_net: Network[PolicyNet],
+        value_net: Network[ValueNet],
+        replay_buffer: TensorDictReplayBuffer,
+        net_lock: MRSWLock,
+        config: ActorConfig,
+    ) -> list["Actor"]:
+        return [
+            cls(
+                id,
+                policy_net,
+                value_net,
+                replay_buffer,
+                config.sync_frequency,
+                net_lock,
+                config.max_steps,
+            )
+            for id in range(config.num_actors)
+        ]

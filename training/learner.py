@@ -1,4 +1,6 @@
+import logging
 import pathlib
+from dataclasses import asdict
 from typing import Optional
 
 import torch
@@ -8,6 +10,7 @@ from torchrl.data import TensorDictReplayBuffer
 
 from models import Network, PolicyNetwork, ValueNetwork
 from utils import MRSWLock, get_device
+from utils.data import LearnerConfig
 
 
 class Learner:
@@ -21,6 +24,7 @@ class Learner:
         lr_pol: float,
         lr_val: float,
         net_lock: MRSWLock,
+        max_steps: int = 10,
     ):
         self.policy_net = policy_net
         self.value_net = value_net
@@ -37,11 +41,20 @@ class Learner:
         self.batch_size = batch_size
         self.beta = beta
 
+        self.max_steps = max_steps
+
         self.device = get_device()
+
+        self.logger = logging.getLogger("learner")
+
+    def spin_sample(self):
+        while len(self.replay_buffer) < self.batch_size:
+            continue  # spin until can sample
+        return self.replay_buffer.sample(self.batch_size).to(self.device)
 
     def train_step(self):
         # Sample a mini-batch of transitions from the replay buffer
-        batch = self.replay_buffer.sample(self.batch_size).to(self.device)
+        batch = self.spin_sample()
         states = batch["state"]
         actions = batch["action"]
         rewards = batch["reward"]
@@ -54,16 +67,29 @@ class Learner:
 
         # Compute action probabilities and log probabilities
         action_probs = self.policy_net(states)
+        self.logger.debug(f"ap shape: {action_probs.shape}")
+
         action_log_probs = torch.log(
             action_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
         )
+        self.logger.debug(f"alp shape: {action_log_probs.shape}")
+
+        self.logger.debug(f"rew shape: {rewards.shape}")
+        self.logger.debug(f"ov shape: {old_values.shape}")
 
         advantages = rewards - old_values
 
+        self.logger.debug(f"adv shape: {advantages.shape}")
+
         # Importance sampling ratio (πθ / πθ') - using stored policies from replay buffer
-        importance_sampling_ratio = (
-            action_probs.gather(1, actions.unsqueeze(1)) / old_policies[actions]
-        )
+        quo = action_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
+        div = old_policies.gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        self.logger.debug(f"quo shape: {quo.shape}, div: {div.shape}")
+
+        importance_sampling_ratio = quo / div
+
+        self.logger.debug(f"isr shape: {importance_sampling_ratio.shape}")
 
         # Policy network update
         self.policy_optimizer.zero_grad()
@@ -91,14 +117,19 @@ class Learner:
         for idx, priority in enumerate(priorities):
             self.replay_buffer.update_priority(idx, priority)
 
-    def train_loop(self, checkpoint_path: str, checkpoint_every: int, max_steps: int):
+    def train_loop(self, checkpoint_path: str, checkpoint_every: int):
         ckp = pathlib.Path(checkpoint_path)
-        assert ckp.is_dir(), "checkpoint path must be a directory"
         ckp.mkdir(parents=True, exist_ok=True)
-        for i in range(max_steps):
+        assert ckp.is_dir(), "checkpoint path must be a directory"
+        for i in range(self.max_steps):
+            self.logger.debug(f"step {i}")
             self.train_step()
             if i % checkpoint_every == 0:
-                self.save(ckp / f"step_{i}")
+                self.logger.info(f"saving at step {i}")
+                self.save(ckp / f"step_{i}.pt")
+
+        self.save(ckp / f"step_{self.max_steps}.pt")
+        self.logger.info(f"iteration complete at step {self.max_steps}")
 
     def save(self, path: pathlib.Path):
         checkpoint = {
@@ -117,7 +148,7 @@ class Learner:
             "beta": self.beta,
             "batch_size": self.batch_size,
         }
-        torch.save(checkpoint, path.with_suffix(".pt"))
+        torch.save(checkpoint, path)
 
     @classmethod
     def from_checkpoint(
@@ -176,6 +207,23 @@ class Learner:
         self.value_optimizer.load_state_dict(checkpoint["value_net"]["optimizer"])
         self.beta = checkpoint["beta"]
         self.batch_size = checkpoint["batch_size"]
+
+    @classmethod
+    def from_config(
+        cls,
+        policy_net: Network,
+        value_net: Network,
+        replay_buffer: TensorDictReplayBuffer,
+        lock: MRSWLock,
+        config: LearnerConfig,
+    ):
+        return cls(
+            policy_net=policy_net,
+            value_net=value_net,
+            replay_buffer=replay_buffer,
+            net_lock=lock,
+            **asdict(config),
+        )
 
 
 # Usage:
