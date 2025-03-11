@@ -56,22 +56,22 @@ def learner(replay_buffer, policy_net, value_net):
     )
 
 
-def test_save_checkpoint(learner, temp_dir):
-    checkpoint_path = temp_dir / "test_checkpoint"
+def test_save_checkpoint(learner: Learner, temp_dir):
+    checkpoint_path = temp_dir / "test_checkpoint.pt"
     learner.save(checkpoint_path)
 
-    assert checkpoint_path.with_suffix(".pt").exists()
+    assert checkpoint_path.exists()
 
-    checkpoint = torch.load(checkpoint_path.with_suffix(".pt"))
+    checkpoint = torch.load(checkpoint_path)
     assert "policy_net" in checkpoint
     assert "value_net" in checkpoint
     assert "beta" in checkpoint
     assert "batch_size" in checkpoint
 
 
-def test_load_checkpoint(learner, temp_dir):
+def test_load_checkpoint(learner: Learner, temp_dir):
     # Save initial state
-    checkpoint_path = temp_dir / "test_checkpoint"
+    checkpoint_path = temp_dir / "test_checkpoint.pt"
     learner.save(checkpoint_path)
 
     # Create new learner with different parameters
@@ -79,29 +79,29 @@ def test_load_checkpoint(learner, temp_dir):
         policy_net=PolicyNetwork(**POLICY_ARGS),
         value_net=ValueNetwork(**VALUE_ARGS),
         replay_buffer=learner.replay_buffer,
-        batch_size=64,  # Different from original
-        beta=0.02,  # Different from original
+        batch_size=64,  # Different from original, should be overriden
+        beta=0.02,  # Different from original, should be overriden
         lr_pol=0.002,
         lr_val=0.002,
         net_lock=MRSWLock(),
     )
 
     # Load state
-    new_learner.load(str(checkpoint_path.with_suffix(".pt")))
+    new_learner.load(str(checkpoint_path))
 
     # Verify loaded state matches original
     assert new_learner.batch_size == learner.batch_size
     assert new_learner.beta == learner.beta
 
 
-def test_from_checkpoint(learner, temp_dir, replay_buffer):
+def test_from_checkpoint(learner: Learner, temp_dir, replay_buffer):
     # Save initial state
-    checkpoint_path = temp_dir / "test_checkpoint"
+    checkpoint_path = temp_dir / "test_checkpoint.pt"
     learner.save(checkpoint_path)
 
     # Create new learner from checkpoint
     new_learner = Learner.from_checkpoint(
-        str(checkpoint_path.with_suffix(".pt")),
+        str(checkpoint_path),
         replay_buffer=replay_buffer,
         net_lock=MRSWLock(),
     )
@@ -141,5 +141,3 @@ def test_train_step(learner, replay_buffer):
     replay_buffer.extend(tensor_dict)
 
     learner.train_step()
-
-    assert True
