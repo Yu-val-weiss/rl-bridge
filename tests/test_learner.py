@@ -116,28 +116,42 @@ def test_from_checkpoint(learner: Learner, temp_dir, replay_buffer):
 
 
 def test_train_step(learner, replay_buffer):
-    """
-    Test that the train_step method of the Learner class can run without errors.
-    Adds dummy data to the replay buffer for the test.
-    """
-    # Create a batch of dummy transitions
+    """Test that the train_step method of the Learner class works correctly"""
+    # Create dummy batch data
+    batch_size = 32
     dummy_state = torch.randn(2)
     dummy_action = torch.tensor(0)
     dummy_reward = torch.tensor(1.0)
-    dummy_old_policy = torch.tensor(0.5)
+    # Old policy should be a probability distribution over actions
+    dummy_old_policy = torch.tensor([0.25, 0.25, 0.25, 0.25])
     dummy_old_value = torch.tensor(0.3)
 
     tensor_dict = TensorDict(
         {
-            "state": torch.stack([dummy_state for _ in range(32)]),
-            "action": torch.stack([dummy_action for _ in range(32)]),
-            "reward": torch.stack([dummy_reward for _ in range(32)]),
-            "old_policy": torch.stack([dummy_old_policy for _ in range(32)]),
-            "old_value": torch.stack([dummy_old_value for _ in range(32)]),
+            "state": torch.stack([dummy_state for _ in range(batch_size)]),
+            "action": torch.stack([dummy_action for _ in range(batch_size)]),
+            "reward": torch.stack([dummy_reward for _ in range(batch_size)]),
+            "old_policy": torch.stack([dummy_old_policy for _ in range(batch_size)]),
+            "old_value": torch.stack([dummy_old_value for _ in range(batch_size)]),
         },
-        batch_size=[32],
+        batch_size=[batch_size],
     )
 
+    # Add data to buffer
     replay_buffer.extend(tensor_dict)
 
-    learner.train_step()
+    # Test initial buffer size
+    assert len(replay_buffer) == batch_size
+
+    # Train for a few steps
+    for _ in range(3):
+        initial_params = torch.concat(
+            [p.flatten() for p in learner.policy_net.parameters()]
+        )
+        learner.train_step()
+        final_params = torch.concat(
+            [p.flatten() for p in learner.policy_net.parameters()]
+        )
+
+        # Verify parameters were updated
+        assert not torch.allclose(initial_params, final_params)
