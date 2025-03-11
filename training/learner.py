@@ -4,7 +4,7 @@ from typing import Optional
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from torchrl.data import PrioritizedReplayBuffer
+from torchrl.data import TensorDictReplayBuffer
 
 from models import Network, PolicyNetwork, ValueNetwork
 from utils import MRSWLock, get_device
@@ -15,7 +15,7 @@ class Learner:
         self,
         policy_net: Network,
         value_net: Network,
-        replay_buffer: PrioritizedReplayBuffer,
+        replay_buffer: TensorDictReplayBuffer,
         batch_size: int,
         beta: float,
         lr_pol: float,
@@ -41,14 +41,16 @@ class Learner:
 
     def train_step(self):
         # Sample a mini-batch of transitions from the replay buffer
-        batch = self.replay_buffer.sample(self.batch_size, return_info=True)
-        states, actions, rewards, old_policies, old_values = zip(*batch)
+        batch = self.replay_buffer.sample(self.batch_size)
+        states = batch["state"]
+        actions = batch["action"]
+        rewards = batch["reward"]
+        old_policies = batch["old_policy"]
+        old_values = batch["old_value"]
 
-        states = torch.tensor(states, dtype=torch.float32)
-        actions = torch.tensor(actions, dtype=torch.int64)
-        rewards = torch.tensor(rewards, dtype=torch.float32)
-        old_policies = torch.tensor(old_policies, dtype=torch.float32)
-        old_values = torch.tensor(old_values, dtype=torch.float32)
+        # Ensure that old_policies and old_values require gradients
+        old_policies.requires_grad_()
+        old_values.requires_grad_()
 
         # Compute action probabilities and log probabilities
         action_probs = self.policy_net(states)
@@ -56,14 +58,12 @@ class Learner:
             action_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
         )
 
-        # Value estimates
-        values = self.value_net(states).squeeze()
-        advantages = rewards - values.detach()
+        advantages = rewards - old_values
 
         # Importance sampling ratio (πθ / πθ') - using stored policies from replay buffer
-        importance_sampling_ratio = action_probs.gather(
-            1, actions.unsqueeze(1)
-        ).squeeze(1) / old_policies.gather(1, actions.unsqueeze(1)).squeeze(1)
+        importance_sampling_ratio = (
+            action_probs.gather(1, actions.unsqueeze(1)) / old_policies[actions]
+        )
 
         # Policy network update
         self.policy_optimizer.zero_grad()
@@ -79,7 +79,7 @@ class Learner:
 
         # Value network update
         self.value_optimizer.zero_grad()
-        value_loss = F.mse_loss(values, rewards)
+        value_loss = F.mse_loss(old_values, rewards)
         value_loss.backward()
 
         with self.net_lock.write():
@@ -123,7 +123,7 @@ class Learner:
     def from_checkpoint(
         cls,
         checkpoint_path: str,
-        replay_buffer: PrioritizedReplayBuffer,
+        replay_buffer: TensorDictReplayBuffer,
         net_lock: MRSWLock,
     ):
         """
@@ -131,7 +131,7 @@ class Learner:
 
         Args:
             checkpoint_path (str): Path to the checkpoint file
-            replay_buffer (PrioritizedReplayBuffer): Replay buffer to use
+            replay_buffer (TensorDictReplayBuffer): Replay buffer to use
             net_lock (MRSWLock, optional): Lock for thread safety
 
         Returns:
@@ -182,7 +182,7 @@ class Learner:
 if __name__ == "__main__":
     state_dim = 4  # set right values
     action_dim = 2  # set right values
-    replay_buffer = PrioritizedReplayBuffer(
+    replay_buffer = TensorDictReplayBuffer(
         alpha=0.7, beta=0.9
     )  # dummy values for alpha and beta
     policy_net = PolicyNetwork(input_size=state_dim, output_size=action_dim)
