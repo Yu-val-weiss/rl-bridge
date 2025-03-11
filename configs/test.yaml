@@ -1,0 +1,28 @@
+policy_net:
+  input_size: 84
+  hidden_size: 10
+  output_size: 9
+
+value_net:
+  input_size: 84
+  hidden_size: 10
+
+actor:
+  num_actors: 2
+  sync_frequency: 10
+  max_steps: 100
+
+learner:
+  batch_size: 64
+  beta: 0.99
+  max_steps: 400
+  lr_pol: 0.01
+  lr_val: 0.01
+
+replay_buffer:
+  alpha: 0.01
+  beta: 0.03
+  max_capacity: 10000
+
+checkpoint_path: checkpoints/test_1/
+checkpoint_every: 5
