@@ -10,7 +10,7 @@ from torch import nn
 from torchrl.data import TensorDictReplayBuffer
 
 from models import Network
-from utils import MRSWLock
+from utils import MRSWLock, get_device
 
 PolicyNet = TypeVar("PolicyNet", bound=Network)
 ValueNet = TypeVar("ValueNet", bound=Network)
@@ -35,7 +35,7 @@ class Actor:
         self._policy_net = policy_net  # points to shared one, should not be used
         self._value_net = value_net  # points to shared one, should not be used
 
-        self.synchronize(at_init=True)
+        self.synchronize(at_init=True)  # assigns self.policy_net and self.value_net
 
         self.replay_buffer = replay_buffer
         self.sync_freq = sync_freq
@@ -48,7 +48,8 @@ class Actor:
 
         self.max_rounds = 10
 
-    # TODO: implement synchronization
+        self.device = get_device()
+
     def synchronize(self, *, at_init=False):
         with self.net_lock.read() if not at_init else contextlib.nullcontext():
             self.policy_net = self._policy_net.clone()
@@ -62,11 +63,14 @@ class Actor:
         """Plays through one bidding step (one action of one player)."""
         current_player = time_step.observations["current_player"]
         obs = torch.tensor(
-            time_step.observations["info_state"][current_player], dtype=torch.float32
+            time_step.observations["info_state"][current_player],
+            dtype=torch.float32,
+            device=self.device,
         )
         legal_actions = time_step.observations["legal_actions"][current_player]
 
-        action_probs = self.policy_net(obs).detach().numpy()
+        action_probs_on_device = self.policy_net(obs)  # move to CPU before numpy() call
+        action_probs = action_probs_on_device.cpu().detach().numpy()
 
         # Only sample an action from legal actions
         # Could replace this implementation by masking idea. This approach was straightforward now, hence I implemented it.
@@ -106,6 +110,8 @@ class Actor:
         while self.local_buffer:
             obs, action, value, policy_probs = self.local_buffer.popleft()
 
+            obs = obs.cpu().detach()
+
             for reward in rewards:
                 # Add each part of the transition to the respective list
                 transitions["state"].append(obs)
@@ -122,25 +128,19 @@ class Actor:
         if transitions["state"]:
             # Stack the lists of tensors into batch tensors
             batch = TensorDict(
-                {
-                    "state": torch.stack(transitions["state"]),
-                    "action": torch.stack(transitions["action"]),
-                    "reward": torch.stack(transitions["reward"]),
-                    "old_policy": torch.stack(transitions["old_policy"]),
-                    "old_value": torch.stack(transitions["old_value"]),
-                },
+                {k: torch.stack(v) for k, v in transitions.items()},
                 batch_size=[len(transitions["state"])],
             )
-
-            # Add the batch to the replay buffer (should be thread-safe)
+            # add batch to replay buffer (thread safe)
             self.replay_buffer.extend(batch)
 
     def run(self) -> None:
         """Main loop of the Actor thread."""
         while self.step_count < self.max_rounds:
             self.step_count += 1
-            # if self.step_count % self.sync_freq == 0:
-            # self.synchronize()
+            if self.step_count % self.sync_freq == 0:
+                # self.synchronize()
+                print("would sync now! TODO: need to actually synchronise!")
 
             deal = self.sample_deal()
             final_time_step = self.play_bidding_phase(deal)
