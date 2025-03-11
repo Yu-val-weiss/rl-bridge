@@ -1,7 +1,9 @@
+from dataclasses import asdict
+
 import torch
 
 from utils import get_device
-
+from utils.data import ValueNetConfig
 
 from .mlp import MLP
 from .network import Network
@@ -32,3 +34,8 @@ class ValueNetwork(Network["ValueNetwork"]):
 
     def get_init_config(self) -> dict[str, int]:
         return dict(input_size=self.input_size, hidden_size=self.hidden_size)
+
+    @classmethod
+    def from_dataclass(cls, config: ValueNetConfig) -> "ValueNetwork":
+        """Creates value network from config dataclass"""
+        return cls(**asdict(config))

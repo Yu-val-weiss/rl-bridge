@@ -1,8 +1,10 @@
+from dataclasses import asdict
+
 import torch
 from torch import nn
 
 from utils import get_device
-
+from utils.data import PolicyNetConfig
 
 from .mlp import MLP
 from .network import Network
@@ -42,3 +44,8 @@ class PolicyNetwork(Network["PolicyNetwork"]):
             hidden_size=self.hidden_size,
             output_size=self.output_size,
         )
+
+    @classmethod
+    def from_dataclass(cls, config: PolicyNetConfig) -> "PolicyNetwork":
+        """Creates policy network from config dataclass"""
+        return cls(**asdict(config))
