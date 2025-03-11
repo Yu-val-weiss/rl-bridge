@@ -11,6 +11,9 @@ dependencies = [
     "open-spiel (>=1.5,<2.0)",
     "numpy (>=1.0,<2.0)",
     "torchrl (>=0.3.0,<0.4.0)",
+    "click (>=8.1.8,<9.0.0)",
+    "pyyaml (>=6.0.2,<7.0.0)",
+    "dacite (>=1.9.2,<2.0.0)",
 ]
 
 [tool.poetry]
