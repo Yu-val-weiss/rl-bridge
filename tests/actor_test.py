@@ -166,5 +166,5 @@ def test_play_bidding_phase(actor):
 def test_run(actor):
     actor.run()
 
-    assert actor.step_count == actor.max_rounds
+    assert actor.step_count == actor.max_steps
     assert len(actor.replay_buffer) > 0
