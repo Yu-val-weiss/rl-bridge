@@ -41,7 +41,7 @@ class Learner:
 
     def train_step(self):
         # Sample a mini-batch of transitions from the replay buffer
-        batch = self.replay_buffer.sample(self.batch_size)
+        batch = self.replay_buffer.sample(self.batch_size).to(self.device)
         states = batch["state"]
         actions = batch["action"]
         rewards = batch["reward"]
