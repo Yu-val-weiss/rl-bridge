@@ -8,9 +8,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchrl.data import TensorDictReplayBuffer
 
+import wandb
 from models import Network, PolicyNetwork, ValueNetwork
 from utils import MRSWLock, get_device
-from utils.data import LearnerConfig
+from utils.data import LearnerConfig, WBConfig
 
 
 class Learner:
@@ -25,6 +26,7 @@ class Learner:
         lr_val: float,
         net_lock: MRSWLock,
         max_steps: int = 10,
+        wandb_conf: Optional[WBConfig] = None,
     ):
         self.policy_net = policy_net
         self.value_net = value_net
@@ -44,6 +46,16 @@ class Learner:
         self.max_steps = max_steps
 
         self.device = get_device()
+
+        self.wandb = False
+
+        if wandb_conf:
+            wandb.init(
+                project=wandb_conf.project,
+                name=wandb_conf.run_name,
+                entity=wandb_conf.entity,
+            )
+            self.wandb = True
 
         self.logger = logging.getLogger("learner")
 
@@ -100,12 +112,22 @@ class Learner:
         entropy_loss = -torch.mean(
             torch.sum(action_probs * torch.log(action_probs + 1e-10), dim=1)
         )  # Entropy term
+
         total_policy_loss = policy_loss + self.beta * entropy_loss
+
+        if self.wandb:
+            wandb.log({"policy loss": total_policy_loss})
+
         total_policy_loss.backward()
 
         # Value network update
         self.value_optimizer.zero_grad()
+
         value_loss = F.mse_loss(old_values, rewards)
+
+        if self.wandb:
+            wandb.log({"value loss": value_loss})
+
         value_loss.backward()
 
         with self.net_lock.write():
@@ -216,12 +238,14 @@ class Learner:
         replay_buffer: TensorDictReplayBuffer,
         lock: MRSWLock,
         config: LearnerConfig,
+        wandb: Optional[WBConfig],
     ):
         return cls(
             policy_net=policy_net,
             value_net=value_net,
             replay_buffer=replay_buffer,
             net_lock=lock,
+            wandb_conf=wandb,
             **asdict(config),
         )
 

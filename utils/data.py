@@ -1,5 +1,6 @@
 import pathlib
 from dataclasses import dataclass
+from typing import Optional
 
 import yaml
 from dacite import Config, from_dict
@@ -52,6 +53,13 @@ class BufferConfig:
 
 
 @dataclass
+class WBConfig:
+    project: str = "RL"
+    entity: str = "biermann-carla-university-of-cambridge"
+    run_name: str = ""
+
+
+@dataclass
 class SelfPlayConfig:
     """Defines configuration for self play training"""
 
@@ -62,6 +70,7 @@ class SelfPlayConfig:
     replay_buffer: BufferConfig
     checkpoint_path: str
     checkpoint_every: int
+    wandb: Optional[WBConfig]
 
 
 def load_config(config_path: pathlib.Path) -> SelfPlayConfig:

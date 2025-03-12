@@ -41,6 +41,7 @@ def config_data():
         "replay_buffer": {"alpha": 0.01, "beta": 0.03, "max_capacity": 5},
         "checkpoint_path": "tests/safsa",
         "checkpoint_every": 5,
+        "wandb": None,
     }
 
 

@@ -1,11 +1,11 @@
 policy_net:
   input_size: 84
-  hidden_size: 10
+  hidden_size: 248
   output_size: 9
 
 value_net:
   input_size: 84
-  hidden_size: 10
+  hidden_size: 248
 
 actor:
   num_actors: 2
@@ -13,7 +13,7 @@ actor:
   max_steps: 100
 
 learner:
-  batch_size: 64
+  batch_size: 16
   beta: 0.99
   max_steps: 400
   lr_pol: 0.01
@@ -24,5 +24,8 @@ replay_buffer:
   beta: 0.03
   max_capacity: 10000
 
+wandb:
+  run_name: test_1
+
 checkpoint_path: checkpoints/test_1/
-checkpoint_every: 5
+checkpoint_every: 1000000

@@ -47,7 +47,9 @@ def self_play(config_path: pathlib.Path):
     buffer = TensorDictReplayBuffer(sampler=sampler, storage=storage)
 
     # initialise learner
-    learner = Learner.from_config(policy_net, value_net, buffer, lock, conf.learner)
+    learner = Learner.from_config(
+        policy_net, value_net, buffer, lock, conf.learner, conf.wandb
+    )
 
     # initialise actors
     actors = Actor.from_config(policy_net, value_net, buffer, lock, conf.actor)

@@ -172,3 +172,4 @@ cython_debug/
 
 # mac stuff
 .DS_STORE
+/wandb
