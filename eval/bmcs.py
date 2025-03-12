@@ -5,6 +5,7 @@ import torch
 from open_spiel.python.rl_environment import Environment, TimeStep
 
 from models import BeliefNetwork, Network
+from utils import get_device
 
 PolicyNet = TypeVar("PolicyNet", bound=Network)
 
@@ -30,6 +31,7 @@ class BMCS:
         self.k = k
         self.action_history = action_history
         self.env = Environment("tiny_bridge_4p")
+        self.device = get_device()
 
     def sample_deal(self, h: TimeStep) -> str:
         """Samples a deal consistent with the belief distribution and returns the state string."""
@@ -37,12 +39,14 @@ class BMCS:
         known_hand_vector = h.observations["info_state"][current_player][:8]
         known_hand = [i for i, value in enumerate(known_hand_vector) if value == 1.0]
         obs = torch.tensor(
-            h.observations["info_state"][current_player], dtype=torch.float32
+            h.observations["info_state"][current_player],
+            dtype=torch.float32,
+            device=self.device,
         )
         obs = obs.unsqueeze(0)  # Add batch dimension
 
         hands_probs = (
-            self.belief_net(obs).detach().numpy()
+            self.belief_net(obs).cpu().detach().numpy()
         )  # shape [batch_size = 1, 3, 8]
         hands_probs = hands_probs.squeeze(0)
         num_players = hands_probs.shape[0]
@@ -99,9 +103,10 @@ class BMCS:
             obs = torch.tensor(
                 time_step.observations["info_state"][current_player],
                 dtype=torch.float32,
+                device=self.device,
             )
 
-            action_probs = self.policy_net(obs).detach().numpy()
+            action_probs = self.policy_net(obs).cpu().detach().numpy()
 
             # Select from legal actions
             legal_actions = time_step.observations["legal_actions"][current_player]
