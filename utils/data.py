@@ -41,6 +41,7 @@ class LearnerConfig:
     max_steps: int
     lr_pol: float
     lr_val: float
+    clip_eps: float
 
 
 @dataclass

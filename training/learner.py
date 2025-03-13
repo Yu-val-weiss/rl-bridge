@@ -1,10 +1,9 @@
 import logging
 import pathlib
 from dataclasses import asdict
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
-import torch.nn.functional as F
 import torch.optim as optim
 from torchrl.data import TensorDictReplayBuffer
 
@@ -25,8 +24,11 @@ class Learner:
         lr_pol: float,
         lr_val: float,
         net_lock: MRSWLock,
+        clip_eps: float,
         max_steps: int = 10,
         wandb_conf: Optional[WBConfig] = None,
+        value_weight: float = 1.0,
+        max_grad_norm: float = 0.1,  # also experimented with 1.0
     ):
         self.policy_net = policy_net
         self.value_net = value_net
@@ -59,6 +61,10 @@ class Learner:
 
         self.logger = logging.getLogger("learner")
 
+        self.clip_eps = clip_eps
+        self.value_weight = value_weight
+        self.max_grad_norm = max_grad_norm
+
     def spin_sample(self):
         while len(self.replay_buffer) < self.batch_size:
             continue  # spin until can sample
@@ -71,71 +77,46 @@ class Learner:
         actions = batch["action"]
         rewards = batch["reward"]
         old_policies = batch["old_policy"]
-        old_values = batch["old_value"]
+        _ = batch[
+            "old_value"
+        ]  # old values don't seem to be needed w/ author's implementation but seems odd...
 
-        # Ensure that old_policies and old_values require gradients
-        old_policies.requires_grad_()
-        old_values.requires_grad_()
-
-        # Compute action probabilities and log probabilities
-        action_probs = self.policy_net(states)
-        self.logger.debug(f"ap shape: {action_probs.shape}")
-
-        action_log_probs = torch.log(
-            action_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
+        p_loss, v_loss, priorities = self.compute_loss_and_priority(
+            states, actions, rewards, old_policies
         )
-        self.logger.debug(f"alp shape: {action_log_probs.shape}")
 
-        self.logger.debug(f"rew shape: {rewards.shape}")
-        self.logger.debug(f"ov shape: {old_values.shape}")
-
-        advantages = rewards - old_values
-
-        self.logger.debug(f"adv shape: {advantages.shape}")
-
-        # Importance sampling ratio (πθ / πθ') - using stored policies from replay buffer
-        quo = action_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
-        div = old_policies.gather(1, actions.unsqueeze(1)).squeeze(1)
-
-        self.logger.debug(f"quo shape: {quo.shape}, div: {div.shape}")
-
-        importance_sampling_ratio = quo / div
-
-        self.logger.debug(f"isr shape: {importance_sampling_ratio.shape}")
+        p_loss = p_loss.mean()
+        v_loss = v_loss.mean()
 
         # Policy network update
         self.policy_optimizer.zero_grad()
-        # it should be the gradient of action_log_probs here, will debug later.
-        policy_loss = -torch.mean(
-            importance_sampling_ratio * action_log_probs * advantages
-        )
-        entropy_loss = -torch.mean(
-            torch.sum(action_probs * torch.log(action_probs + 1e-10), dim=1)
-        )  # Entropy term
-
-        total_policy_loss = policy_loss + self.beta * entropy_loss
 
         if self.wandb:
-            wandb.log({"policy loss": total_policy_loss})
+            wandb.log({"policy loss": p_loss})
 
-        total_policy_loss.backward()
+        p_loss.backward()
+
+        _ = torch.nn.utils.clip_grad_norm_(
+            self.policy_net.parameters(), self.max_grad_norm
+        )
 
         # Value network update
         self.value_optimizer.zero_grad()
 
-        value_loss = F.mse_loss(old_values, rewards)
-
         if self.wandb:
-            wandb.log({"value loss": value_loss})
+            wandb.log({"value loss": v_loss})
 
-        value_loss.backward()
+        v_loss.backward()
+
+        _ = torch.nn.utils.clip_grad_norm_(
+            self.value_net.parameters(), self.max_grad_norm
+        )
 
         with self.net_lock.write():
             self.policy_optimizer.step()
             self.value_optimizer.step()
 
         # Update priorities in the replay buffer based on advantage
-        priorities = torch.abs(advantages).detach()
         for idx, priority in enumerate(priorities):
             self.replay_buffer.update_priority(idx, priority)
 
@@ -169,6 +150,7 @@ class Learner:
             },
             "beta": self.beta,
             "batch_size": self.batch_size,
+            "clip_eps": self.clip_eps,
         }
         torch.save(checkpoint, path)
 
@@ -206,6 +188,7 @@ class Learner:
             lr_pol=checkpoint["policy_net"]["lr"],
             lr_val=checkpoint["value_net"]["lr"],
             net_lock=net_lock,
+            clip_eps=checkpoint["clip_eps"],
         )
 
         # Load states
@@ -249,6 +232,53 @@ class Learner:
             **asdict(config),
         )
 
+    def compute_loss_and_priority(
+        self, states, actions, rewards, old_policies
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        v = self.value_net(states)
+        pi = self.policy_net(states)
+        current_log_probs = torch.log(pi + 1e-16)
+        current_action_log_probs = current_log_probs.gather(
+            1, actions.unsqueeze(1)
+        ).squeeze(1)
+        old_log_probs = torch.log(old_policies + 1e-16)
+        old_action_log_probs = old_log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        ratio = torch.exp(current_action_log_probs - old_action_log_probs)
+        rewards = rewards / 10  # added because rewards are +-10/20/etc.
+        adv = rewards - v.squeeze()
+
+        surr1 = ratio * (adv.detach())
+        surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * (
+            adv.detach()
+        )
+
+        entropy = -torch.sum(pi * current_log_probs, -1)
+
+        p_loss = -torch.min(surr1, surr2) - self.beta * entropy
+        v_loss = torch.pow(adv, 2) * self.value_weight
+
+        priority = torch.abs(adv).detach().cpu()
+
+        if self.wandb:
+            wandb.log({"adv_min": torch.min(adv)})
+            wandb.log({"adv_max": torch.max(adv)})
+            wandb.log({"adv_mean": torch.mean(adv)})
+            wandb.log({"adv_norm": torch.norm(adv)})
+            wandb.log({"ratio_mean": torch.mean(ratio)})
+            wandb.log({"entropy_mean": torch.mean(entropy)})
+            wandb.log(
+                {"action probs min": torch.min(torch.exp(current_action_log_probs))}
+            )
+            wandb.log(
+                {"action probs max": torch.max(torch.exp(current_action_log_probs))}
+            )
+            wandb.log(
+                {"action probs mean": torch.mean(torch.exp(current_action_log_probs))}
+            )
+
+        return p_loss, v_loss, priority
+
 
 # Usage:
 if __name__ == "__main__":
@@ -268,6 +298,7 @@ if __name__ == "__main__":
         net_lock=MRSWLock(),
         batch_size=32,
         beta=0.01,
+        clip_eps=0.2,
     )
 
     for i in range(1000):

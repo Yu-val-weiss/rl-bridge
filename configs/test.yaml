@@ -14,14 +14,15 @@ actor:
 
 learner:
   batch_size: 16
-  beta: 0.99
+  beta: 0.01 # authors used: 0.01, generally 0.99 gave much less stable results
   max_steps: 400
-  lr_pol: 0.01
-  lr_val: 0.01
+  lr_pol: 0.000013 # learning rates of authors
+  lr_val: 0.00013
+  clip_eps: 0.1 # eye-balled, tried 0.2 as well
 
 replay_buffer:
-  alpha: 0.01
-  beta: 0.03
+  alpha: 0.5
+  beta: 0.5
   max_capacity: 10000
 
 wandb:
