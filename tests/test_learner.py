@@ -34,7 +34,7 @@ def policy_net():
     return PolicyNetwork(**POLICY_ARGS)
 
 
-VALUE_ARGS = dict(input_size=4, hidden_size=6)
+VALUE_ARGS = dict(input_size=2, hidden_size=6)
 
 
 @pytest.fixture
@@ -53,6 +53,7 @@ def learner(replay_buffer, policy_net, value_net):
         lr_pol=0.001,
         lr_val=0.001,
         net_lock=MRSWLock(),
+        clip_eps=0.2,
     )
 
 
@@ -84,6 +85,7 @@ def test_load_checkpoint(learner: Learner, temp_dir):
         lr_pol=0.002,
         lr_val=0.002,
         net_lock=MRSWLock(),
+        clip_eps=0.3,
     )
 
     # Load state

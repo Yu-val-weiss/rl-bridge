@@ -37,6 +37,7 @@ def config_data():
             "max_steps": 400,
             "lr_pol": 0.01,
             "lr_val": 0.01,
+            "clip_eps": 0.2,
         },
         "replay_buffer": {"alpha": 0.01, "beta": 0.03, "max_capacity": 5},
         "checkpoint_path": "tests/safsa",
