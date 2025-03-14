@@ -54,6 +54,7 @@ def learner(replay_buffer, policy_net, value_net):
         lr_val=0.001,
         net_lock=MRSWLock(),
         clip_eps=0.2,
+        use_wandb=False,
     )
 
 
@@ -89,7 +90,7 @@ def test_load_checkpoint(learner: Learner, temp_dir):
     )
 
     # Load state
-    new_learner.load(str(checkpoint_path))
+    new_learner.load(checkpoint_path)
 
     # Verify loaded state matches original
     assert new_learner.batch_size == learner.batch_size

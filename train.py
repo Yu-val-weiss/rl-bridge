@@ -1,12 +1,14 @@
 import logging
 import pathlib
 import threading
+from dataclasses import asdict
 
 import click
 import torch
 from torchrl.data import LazyMemmapStorage, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.samplers import PrioritizedSampler
 
+import wandb
 from models import PolicyNetwork, ValueNetwork
 from training import Actor, Learner
 from utils import load_self_play_config
@@ -27,7 +29,8 @@ logging.basicConfig(
     type=click.Path(exists=True, dir_okay=False, path_type=pathlib.Path),
     help="Path to config yaml file",
 )
-def self_play(config_path: pathlib.Path):
+@click.option("--resume/--no-resume", help="Whether to auto resume", default=False)
+def self_play(config_path: pathlib.Path, resume: bool):
     conf = load_self_play_config(config_path)
 
     # initialise networks
@@ -54,10 +57,41 @@ def self_play(config_path: pathlib.Path):
 
     sync_events = [threading.Event() for _ in range(conf.actor.num_actors)]
 
+    ckp = pathlib.Path(conf.checkpoint_path)
+
+    ckp.mkdir(parents=True, exist_ok=True)
+
+    # initiliase wandb
+
+    if conf.wandb:
+        run_id = None
+        ckp_run_id = ckp / "wandb_id"
+        if resume and ckp_run_id.exists():
+            run_id = ckp_run_id.open("r").read()
+        run = wandb.init(
+            entity=conf.wandb.entity,
+            project=conf.wandb.project,
+            name=conf.wandb.run_name,
+            config=asdict(conf),
+            config_exclude_keys=["wandb"],
+            id=run_id,
+        )
+        with ckp_run_id.open("w") as f:
+            f.write(run.id)
+
     # initialise learner
     learner = Learner.from_config(
-        policy_net, value_net, buffer, lock, conf.learner, conf.wandb
+        policy_net, value_net, buffer, lock, conf.learner, conf.wandb is not None
     )
+
+    latest = None
+    if resume:
+        latest = get_latest_checkpoint(ckp)
+        if latest:
+            logging.info(f"loading learner from {latest}")
+            learner.load(latest)
+        else:
+            logging.warning("could not find a checkpoint to load from")
 
     # initialise actors
     actors = Actor.from_config(
@@ -75,6 +109,7 @@ def self_play(config_path: pathlib.Path):
                 conf.checkpoint_every,
                 sync_events,
                 conf.actor.sync_frequency,
+                offset=get_step(latest) if resume and latest is not None else 0,
             )
         finally:
             stop_event.set()  # Signal actors to stop when learner finishes
@@ -111,6 +146,17 @@ def self_play(config_path: pathlib.Path):
         return
 
     logging.info("iteration complete!")
+
+
+def get_step(path: pathlib.Path):
+    return int(path.with_suffix("").name.split("_")[1])
+
+
+def get_latest_checkpoint(checkpoint_path: pathlib.Path):
+    checkpoints = list(checkpoint_path.glob("*.pt"))
+    if checkpoints:
+        return max(checkpoints, key=get_step)
+    return None
 
 
 if __name__ == "__main__":
