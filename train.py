@@ -100,6 +100,7 @@ def self_play(config_path: pathlib.Path):
     logging.info("starting threads!")
 
     for thread in threads:
+        logging.info(f"starting thread {thread.getName()}")
         thread.start()
 
     try:
