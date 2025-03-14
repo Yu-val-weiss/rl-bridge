@@ -109,9 +109,7 @@ class Learner:
 
         v_loss.backward()
 
-        _ = torch.nn.utils.clip_grad_norm_(
-            self.value_net.parameters(), self.max_grad_norm
-        )
+        torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), self.max_grad_norm)
 
         with self.net_lock.write():
             self.policy_optimizer.step()
@@ -120,6 +118,54 @@ class Learner:
         # Update priorities in the replay buffer based on advantage
         for idx, priority in enumerate(priorities):
             self.replay_buffer.update_priority(idx, priority)
+
+    def compute_loss_and_priority(
+        self, states, actions, rewards, old_policies
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        v = self.value_net(states)
+        pi = self.policy_net(states)
+        current_log_probs = torch.log(pi + 1e-16)
+        current_action_log_probs = current_log_probs.gather(
+            1, actions.unsqueeze(1)
+        ).squeeze(1)
+        old_log_probs = torch.log(old_policies + 1e-16)
+        old_action_log_probs = old_log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        ratio = torch.exp(current_action_log_probs - old_action_log_probs)
+
+        adv = rewards - v.squeeze()
+
+        surr1 = ratio * (adv.detach())
+        surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * (
+            adv.detach()
+        )
+
+        entropy = -torch.sum(pi * current_log_probs, -1)
+
+        p_loss = -torch.min(surr1, surr2) - self.beta * entropy
+        v_loss = torch.pow(adv, 2) * self.value_weight
+
+        priority = torch.abs(adv).detach().cpu()
+
+        if self.wandb:
+            wandb.log(
+                {
+                    "adv_min": torch.min(adv),
+                    "adv_max": torch.max(adv),
+                    "adv_mean": torch.mean(adv),
+                    "adv_norm": torch.norm(adv),
+                    "ratio_mean": torch.mean(ratio),
+                    "entropy_mean": torch.mean(entropy),
+                    "action probs min": torch.min(torch.exp(current_action_log_probs)),
+                    "action probs max": torch.max(torch.exp(current_action_log_probs)),
+                    "action probs mean": torch.mean(
+                        torch.exp(current_action_log_probs)
+                    ),
+                },
+                step=self.step_num,
+            )
+
+        return p_loss, v_loss, priority
 
     def train_loop(
         self,
@@ -242,54 +288,6 @@ class Learner:
             wandb_conf=wandb,
             **asdict(config),
         )
-
-    def compute_loss_and_priority(
-        self, states, actions, rewards, old_policies
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        v = self.value_net(states)
-        pi = self.policy_net(states)
-        current_log_probs = torch.log(pi + 1e-16)
-        current_action_log_probs = current_log_probs.gather(
-            1, actions.unsqueeze(1)
-        ).squeeze(1)
-        old_log_probs = torch.log(old_policies + 1e-16)
-        old_action_log_probs = old_log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
-
-        ratio = torch.exp(current_action_log_probs - old_action_log_probs)
-        # rewards = rewards / 10  # added because rewards are +-10/20/etc.
-        adv = rewards - v.squeeze()
-
-        surr1 = ratio * (adv.detach())
-        surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * (
-            adv.detach()
-        )
-
-        entropy = -torch.sum(pi * current_log_probs, -1)
-
-        p_loss = -torch.min(surr1, surr2) - self.beta * entropy
-        v_loss = torch.pow(adv, 2) * self.value_weight
-
-        priority = torch.abs(adv).detach().cpu()
-
-        if self.wandb:
-            wandb.log(
-                {
-                    "adv_min": torch.min(adv),
-                    "adv_max": torch.max(adv),
-                    "adv_mean": torch.mean(adv),
-                    "adv_norm": torch.norm(adv),
-                    "ratio_mean": torch.mean(ratio),
-                    "entropy_mean": torch.mean(entropy),
-                    "action probs min": torch.min(torch.exp(current_action_log_probs)),
-                    "action probs max": torch.max(torch.exp(current_action_log_probs)),
-                    "action probs mean": torch.mean(
-                        torch.exp(current_action_log_probs)
-                    ),
-                },
-                step=self.step_num,
-            )
-
-        return p_loss, v_loss, priority
 
 
 # Usage:
