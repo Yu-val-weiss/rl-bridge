@@ -47,8 +47,7 @@ def cross_entropy_loss(policy_net, states, actions):
     """
     action_probs = policy_net(states)  # Forward pass to get action probabilities
     log_probs = torch.log(action_probs + 1e-10)  # Avoid log(0) issues
-    loss = F.nll_loss(log_probs, actions)
-    return loss
+    return F.nll_loss(log_probs, actions)
 
 
 def load_dataset(file_path: pathlib.Path, batch_size: int, validation_split=0.1):
@@ -109,14 +108,14 @@ def load_dataset(file_path: pathlib.Path, batch_size: int, validation_split=0.1)
 @click.option(
     "-b",
     "--batch_size",
-    default=128,
+    default=512,
     type=int,
     help="Batch size for training",
 )
 @click.option(
     "-lr",
     "--learning_rate",
-    default=0.001,
+    default=0.0001,
     type=float,
     help="Learning rate for training",
 )
@@ -148,7 +147,9 @@ def train_sl(
 
     best_val_loss = float("inf")
 
-    num_batches = len(train_set) // batch_size
+    num_batches = len(train_set)
+
+    model_fp = "sl/policy_net.pt"
 
     # Training loop
     for epoch in (pbar := trange(epochs)):
@@ -190,13 +191,14 @@ def train_sl(
 
         if val_total_loss < best_val_loss:
             best_val_loss = val_total_loss
-            torch.save(policy_net.state_dict(), "policy_net.pt")
+
+            torch.save(policy_net.state_dict(), model_fp)
             pbar.write(f"new best model saved with val loss: {best_val_loss:.4f}")
 
     # Save the trained model
     if val_total_loss < best_val_loss:  # type: ignore
         best_val_loss = val_total_loss  # type: ignore
-        torch.save(policy_net.state_dict(), "policy_net.pt")
+        torch.save(policy_net.state_dict(), model_fp)
         pbar.write(f"new best model saved with val loss: {best_val_loss:.4f}")
 
 
