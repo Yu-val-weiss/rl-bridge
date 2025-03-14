@@ -74,7 +74,7 @@ class SelfPlayConfig:
     wandb: Optional[WBConfig]
 
 
-def load_config(config_path: pathlib.Path) -> SelfPlayConfig:
+def load_self_play_config(config_path: pathlib.Path) -> SelfPlayConfig:
     """Load configuration from a YAML file.
 
     Args:

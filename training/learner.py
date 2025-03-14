@@ -51,6 +51,8 @@ class Learner:
 
         self.wandb = False
 
+        self.step_num = 0
+
         if wandb_conf:
             wandb.init(
                 project=wandb_conf.project,
@@ -92,7 +94,7 @@ class Learner:
         self.policy_optimizer.zero_grad()
 
         if self.wandb:
-            wandb.log({"policy loss": p_loss})
+            wandb.log({"policy loss": p_loss}, step=self.step_num)
 
         p_loss.backward()
 
@@ -104,7 +106,7 @@ class Learner:
         self.value_optimizer.zero_grad()
 
         if self.wandb:
-            wandb.log({"value loss": v_loss})
+            wandb.log({"value loss": v_loss}, step=self.step_num)
 
         v_loss.backward()
 
@@ -126,6 +128,7 @@ class Learner:
         assert ckp.is_dir(), "checkpoint path must be a directory"
         for i in range(self.max_steps):
             self.logger.debug(f"step {i}")
+            self.step_num = i
             self.train_step()
             if i % checkpoint_every == 0:
                 self.logger.info(f"saving at step {i}")
@@ -245,7 +248,7 @@ class Learner:
         old_action_log_probs = old_log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
 
         ratio = torch.exp(current_action_log_probs - old_action_log_probs)
-        rewards = rewards / 10  # added because rewards are +-10/20/etc.
+        # rewards = rewards / 10  # added because rewards are +-10/20/etc.
         adv = rewards - v.squeeze()
 
         surr1 = ratio * (adv.detach())
@@ -261,20 +264,21 @@ class Learner:
         priority = torch.abs(adv).detach().cpu()
 
         if self.wandb:
-            wandb.log({"adv_min": torch.min(adv)})
-            wandb.log({"adv_max": torch.max(adv)})
-            wandb.log({"adv_mean": torch.mean(adv)})
-            wandb.log({"adv_norm": torch.norm(adv)})
-            wandb.log({"ratio_mean": torch.mean(ratio)})
-            wandb.log({"entropy_mean": torch.mean(entropy)})
             wandb.log(
-                {"action probs min": torch.min(torch.exp(current_action_log_probs))}
-            )
-            wandb.log(
-                {"action probs max": torch.max(torch.exp(current_action_log_probs))}
-            )
-            wandb.log(
-                {"action probs mean": torch.mean(torch.exp(current_action_log_probs))}
+                {
+                    "adv_min": torch.min(adv),
+                    "adv_max": torch.max(adv),
+                    "adv_mean": torch.mean(adv),
+                    "adv_norm": torch.norm(adv),
+                    "ratio_mean": torch.mean(ratio),
+                    "entropy_mean": torch.mean(entropy),
+                    "action probs min": torch.min(torch.exp(current_action_log_probs)),
+                    "action probs max": torch.max(torch.exp(current_action_log_probs)),
+                    "action probs mean": torch.mean(
+                        torch.exp(current_action_log_probs)
+                    ),
+                },
+                step=self.step_num,
             )
 
         return p_loss, v_loss, priority

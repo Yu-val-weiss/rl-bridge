@@ -106,6 +106,7 @@ def test_store_transitions(actor):
             "action": MemoryMappedTensor(torch.tensor([0, 0, 0, 0, 1, 1, 1, 1])),
             "reward": MemoryMappedTensor(
                 torch.tensor([1.0, 0.5, 0.3, 0.2, 1.0, 0.5, 0.3, 0.2])
+                / 160  # due to normalisation
             ),
             "old_policy": MemoryMappedTensor(
                 torch.tensor(
