@@ -11,7 +11,7 @@ from torchrl.data import TensorDictReplayBuffer
 import wandb
 from models import Network, PolicyNetwork, ValueNetwork
 from utils import MRSWLock, get_device
-from utils.config import LearnerConfig, WBConfig
+from utils.config import LearnerConfig
 
 
 class Learner:
@@ -27,7 +27,7 @@ class Learner:
         net_lock: MRSWLock,
         clip_eps: float,
         max_steps: int = 10,
-        wandb_conf: Optional[WBConfig] = None,
+        use_wandb: bool = True,
         value_weight: float = 1.0,
         max_grad_norm: float = 0.1,  # also experimented with 1.0
     ):
@@ -54,13 +54,7 @@ class Learner:
 
         self.step_num = 0
 
-        if wandb_conf:
-            wandb.init(
-                project=wandb_conf.project,
-                name=wandb_conf.run_name,
-                entity=wandb_conf.entity,
-            )
-            self.wandb = True
+        self.wandb = use_wandb
 
         self.logger = logging.getLogger("learner")
 
@@ -173,11 +167,13 @@ class Learner:
         checkpoint_every: int,
         sync_events: list[threading.Event],
         sync_freq: int,
+        offset: int = 0,
     ):
         ckp = pathlib.Path(checkpoint_path)
         ckp.mkdir(parents=True, exist_ok=True)
         assert ckp.is_dir(), "checkpoint path must be a directory"
         for i in range(self.max_steps):
+            i += offset
             self.logger.debug(f"step {i}")
             self.step_num = i
             self.train_step()
@@ -249,10 +245,12 @@ class Learner:
         )
 
         # Load states
-        learner.load("", checkpoint)
+        learner.load(pathlib.Path(), checkpoint)
         return learner
 
-    def load(self, checkpoint_path: str, checkpoint_dict: Optional[dict] = None):
+    def load(
+        self, checkpoint_path: pathlib.Path, checkpoint_dict: Optional[dict] = None
+    ):
         """
         Load the learner's state from a checkpoint file.
 
@@ -278,14 +276,14 @@ class Learner:
         replay_buffer: TensorDictReplayBuffer,
         lock: MRSWLock,
         config: LearnerConfig,
-        wandb: Optional[WBConfig],
+        use_wandb: bool,
     ):
         return cls(
             policy_net=policy_net,
             value_net=value_net,
             replay_buffer=replay_buffer,
             net_lock=lock,
-            wandb_conf=wandb,
+            use_wandb=use_wandb,
             **asdict(config),
         )
 

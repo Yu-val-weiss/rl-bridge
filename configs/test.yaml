@@ -8,14 +8,14 @@ value_net:
   hidden_size: 2048
 
 actor:
-  num_actors: 4
+  num_actors: 3
   sync_frequency: 10
   max_steps: 100
 
 learner:
   batch_size: 2048
   beta: 0.01 # authors used: 0.01, generally 0.99 gave much less stable results
-  max_steps: 800
+  max_steps: 50000
   lr_pol: 0.000013 # learning rates of authors
   lr_val: 0.00013
   clip_eps: 0.1 # eye-balled, tried 0.2 as well
@@ -28,6 +28,6 @@ replay_buffer:
 wandb:
   run_name: test_1
 
-checkpoint_path: checkpoints/test_1/
-checkpoint_every: 1000000
+checkpoint_path: checkpoints/20k_test
+checkpoint_every: 30
 load_policy_net: sl/policy_net.pt
