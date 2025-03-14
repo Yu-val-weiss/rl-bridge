@@ -73,7 +73,6 @@ def self_play(config_path: pathlib.Path, resume: bool):
             project=conf.wandb.project,
             name=conf.wandb.run_name,
             config=asdict(conf),
-            config_exclude_keys=["wandb"],
             id=run_id,
         )
         with ckp_run_id.open("w") as f:
