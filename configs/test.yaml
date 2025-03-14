@@ -1,11 +1,11 @@
 policy_net:
   input_size: 84
-  hidden_size: 1024
+  hidden_size: 2048
   output_size: 9
 
 value_net:
   input_size: 84
-  hidden_size: 1024
+  hidden_size: 2048
 
 actor:
   num_actors: 2
@@ -13,7 +13,7 @@ actor:
   max_steps: 100
 
 learner:
-  batch_size: 256
+  batch_size: 2048
   beta: 0.01 # authors used: 0.01, generally 0.99 gave much less stable results
   max_steps: 800
   lr_pol: 0.000013 # learning rates of authors
@@ -30,3 +30,4 @@ wandb:
 
 checkpoint_path: checkpoints/test_1/
 checkpoint_every: 1000000
+load_policy_net: sl/policy_net.pt

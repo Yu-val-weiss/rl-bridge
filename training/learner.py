@@ -1,5 +1,6 @@
 import logging
 import pathlib
+import threading
 from dataclasses import asdict
 from typing import Optional, Tuple
 
@@ -10,7 +11,7 @@ from torchrl.data import TensorDictReplayBuffer
 import wandb
 from models import Network, PolicyNetwork, ValueNetwork
 from utils import MRSWLock, get_device
-from utils.data import LearnerConfig, WBConfig
+from utils.config import LearnerConfig, WBConfig
 
 
 class Learner:
@@ -98,9 +99,7 @@ class Learner:
 
         p_loss.backward()
 
-        _ = torch.nn.utils.clip_grad_norm_(
-            self.policy_net.parameters(), self.max_grad_norm
-        )
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), self.max_grad_norm)
 
         # Value network update
         self.value_optimizer.zero_grad()
@@ -122,7 +121,13 @@ class Learner:
         for idx, priority in enumerate(priorities):
             self.replay_buffer.update_priority(idx, priority)
 
-    def train_loop(self, checkpoint_path: str, checkpoint_every: int):
+    def train_loop(
+        self,
+        checkpoint_path: str,
+        checkpoint_every: int,
+        sync_events: list[threading.Event],
+        sync_freq: int,
+    ):
         ckp = pathlib.Path(checkpoint_path)
         ckp.mkdir(parents=True, exist_ok=True)
         assert ckp.is_dir(), "checkpoint path must be a directory"
@@ -130,6 +135,9 @@ class Learner:
             self.logger.debug(f"step {i}")
             self.step_num = i
             self.train_step()
+            if i % sync_freq == 0:
+                for x in sync_events:
+                    x.set()
             if i % checkpoint_every == 0:
                 self.logger.info(f"saving at step {i}")
                 self.save(ckp / f"step_{i}.pt")

@@ -1,6 +1,6 @@
 import torch
 
-from .data import SelfPlayConfig, load_self_play_config
+from .config import SelfPlayConfig, load_self_play_config
 from .mrsw import MRSWLock
 
 

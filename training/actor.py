@@ -13,7 +13,7 @@ from torchrl.data import TensorDictReplayBuffer
 
 from models import Network
 from utils import MRSWLock, get_device
-from utils.data import ActorConfig
+from utils.config import ActorConfig
 
 PolicyNet = TypeVar("PolicyNet", bound=Network)
 ValueNet = TypeVar("ValueNet", bound=Network)
@@ -30,7 +30,7 @@ class Actor:
         policy_net: Network[PolicyNet],
         value_net: Network[ValueNet],
         replay_buffer: TensorDictReplayBuffer,
-        sync_freq: int,
+        sync_event: threading.Event,
         net_lock: MRSWLock,
         max_steps: int = 10,
     ) -> None:
@@ -44,7 +44,7 @@ class Actor:
         self.synchronize(at_init=True)  # assigns self.policy_net and self.value_net
 
         self.replay_buffer = replay_buffer
-        self.sync_freq = sync_freq
+        self.sync_event = sync_event
 
         self.env = Environment("tiny_bridge_4p")
         self.step_count = 0
@@ -58,7 +58,7 @@ class Actor:
 
     def synchronize(self, *, at_init=False):
         if not at_init:
-            self.logger.info(f"synchronising at time step {self.step_count}")
+            self.logger.info(f"synchronising from event at time step {self.step_count}")
 
         with self.net_lock.read() if not at_init else contextlib.nullcontext():
             self.policy_net = self._policy_net.clone()
@@ -154,8 +154,10 @@ class Actor:
         ) or self.step_count < self.max_steps:
             self.logger.debug(f"step {self.step_count}")
             self.step_count += 1
-            if self.step_count % self.sync_freq == 0:
+
+            if self.sync_event.is_set():
                 self.synchronize()
+                self.sync_event.clear()
 
             deal = self.sample_deal()
             final_time_step = self.play_bidding_phase(deal)
@@ -168,15 +170,17 @@ class Actor:
         value_net: Network[ValueNet],
         replay_buffer: TensorDictReplayBuffer,
         net_lock: MRSWLock,
+        sync_events: list[threading.Event],
         config: ActorConfig,
     ) -> list["Actor"]:
+        assert len(sync_events) == config.num_actors, "one sync event per actor thread"
         return [
             cls(
                 id,
                 policy_net,
                 value_net,
                 replay_buffer,
-                config.sync_frequency,
+                sync_events[id],
                 net_lock,
                 config.max_steps,
             )
