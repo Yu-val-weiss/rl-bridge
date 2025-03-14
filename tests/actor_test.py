@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 import torch
 import torch.nn as nn
@@ -61,7 +63,7 @@ def actor(replay_buffer, policy_net, mock_value_net):
         policy_net=policy_net,
         value_net=mock_value_net,
         replay_buffer=replay_buffer,
-        sync_freq=10,
+        sync_event=threading.Event(),
         net_lock=MRSWLock(),
     )
     return actor

@@ -5,7 +5,7 @@ import torch
 from torch import nn
 
 from utils import get_device
-from utils.data import PolicyNetConfig
+from utils.config import PolicyNetConfig
 
 from .mlp import MLP
 from .network import Network

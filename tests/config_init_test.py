@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from utils.data import SelfPlayConfig, load_self_play_config
+from utils.config import SelfPlayConfig, load_self_play_config
 
 
 @pytest.fixture
@@ -43,6 +43,7 @@ def config_data():
         "checkpoint_path": "tests/safsa",
         "checkpoint_every": 5,
         "wandb": None,
+        "load_policy_net": None,
     }
 
 

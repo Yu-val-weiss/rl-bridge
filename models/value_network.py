@@ -3,7 +3,7 @@ from dataclasses import asdict
 import torch
 
 from utils import get_device
-from utils.data import ValueNetConfig
+from utils.config import ValueNetConfig
 
 from .mlp import MLP
 from .network import Network

@@ -3,6 +3,7 @@ import pathlib
 import threading
 
 import click
+import torch
 from torchrl.data import LazyMemmapStorage, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.samplers import PrioritizedSampler
 
@@ -31,6 +32,11 @@ def self_play(config_path: pathlib.Path):
 
     # initialise networks
     policy_net = PolicyNetwork.from_dataclass(conf.policy_net)
+
+    if conf.load_policy_net:
+        logging.info(f"Initialising policy network from {conf.load_policy_net}")
+        policy_net.load_state_dict(torch.load(conf.load_policy_net))
+
     value_net = ValueNetwork.from_dataclass(conf.value_net)
 
     # initialise lock
@@ -46,13 +52,17 @@ def self_play(config_path: pathlib.Path):
     )
     buffer = TensorDictReplayBuffer(sampler=sampler, storage=storage)
 
+    sync_events = [threading.Event() for _ in range(conf.actor.num_actors)]
+
     # initialise learner
     learner = Learner.from_config(
         policy_net, value_net, buffer, lock, conf.learner, conf.wandb
     )
 
     # initialise actors
-    actors = Actor.from_config(policy_net, value_net, buffer, lock, conf.actor)
+    actors = Actor.from_config(
+        policy_net, value_net, buffer, lock, sync_events, conf.actor
+    )
 
     threads: list[threading.Thread] = []
 
@@ -60,7 +70,12 @@ def self_play(config_path: pathlib.Path):
 
     def learner_wrapper():
         try:
-            learner.train_loop(conf.checkpoint_path, conf.checkpoint_every)
+            learner.train_loop(
+                conf.checkpoint_path,
+                conf.checkpoint_every,
+                sync_events,
+                conf.actor.sync_frequency,
+            )
         finally:
             stop_event.set()  # Signal actors to stop when learner finishes
 
