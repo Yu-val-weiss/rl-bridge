@@ -1,3 +1,4 @@
+import copy
 from dataclasses import asdict
 
 import torch
@@ -35,7 +36,7 @@ class PolicyNetwork(Network["PolicyNetwork"]):
             hidden_size=self.hidden_size,
             output_size=self.output_size,
         )
-        new_model.load_state_dict(self.state_dict())
+        new_model.load_state_dict(copy.deepcopy(self.state_dict()))
         return new_model
 
     def get_init_config(self) -> dict[str, int]:

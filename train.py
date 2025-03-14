@@ -8,7 +8,7 @@ from torchrl.data.replay_buffers.samplers import PrioritizedSampler
 
 from models import PolicyNetwork, ValueNetwork
 from training import Actor, Learner
-from utils import load_config
+from utils import load_self_play_config
 from utils.mrsw import MRSWLock
 
 logging.basicConfig(
@@ -27,7 +27,7 @@ logging.basicConfig(
     help="Path to config yaml file",
 )
 def self_play(config_path: pathlib.Path):
-    conf = load_config(config_path)
+    conf = load_self_play_config(config_path)
 
     # initialise networks
     policy_net = PolicyNetwork.from_dataclass(conf.policy_net)

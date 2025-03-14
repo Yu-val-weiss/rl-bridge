@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from utils.data import SelfPlayConfig, load_config
+from utils.data import SelfPlayConfig, load_self_play_config
 
 
 @pytest.fixture
@@ -72,21 +72,21 @@ def invalid_config_file(temp_dir):
 
 
 def test_load_valid_config(valid_config_file, config_data):
-    config = load_config(valid_config_file)
+    config = load_self_play_config(valid_config_file)
     assert isinstance(config, SelfPlayConfig)
     assert asdict(config) == config_data
 
 
 def test_load_nonexistent_config():
     with pytest.raises(Exception):
-        load_config(Path("nonexistent_config.yaml"))
+        load_self_play_config(Path("nonexistent_config.yaml"))
 
 
 def test_load_invalid_yaml(invalid_yaml_file):
     with pytest.raises(yaml.YAMLError):
-        load_config(invalid_yaml_file)
+        load_self_play_config(invalid_yaml_file)
 
 
 def test_load_invalid_config(invalid_config_file):
     with pytest.raises(Exception):  # dacite will raise an exception for invalid config
-        load_config(invalid_config_file)
+        load_self_play_config(invalid_config_file)

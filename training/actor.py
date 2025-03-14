@@ -125,7 +125,11 @@ class Actor:
                 # Add each part of the transition to the respective list
                 transitions["state"].append(obs)
                 transitions["action"].append(torch.tensor(action, dtype=torch.int64))
-                transitions["reward"].append(torch.tensor(reward, dtype=torch.float32))
+
+                # need to normalise reward to [-1,1]
+                norm_reward = torch.tensor(reward, dtype=torch.float32) / 160
+                transitions["reward"].append(norm_reward)
+
                 transitions["old_policy"].append(
                     torch.tensor(policy_probs, dtype=torch.float32)
                 )

@@ -1,11 +1,11 @@
 policy_net:
   input_size: 84
-  hidden_size: 248
+  hidden_size: 1024
   output_size: 9
 
 value_net:
   input_size: 84
-  hidden_size: 248
+  hidden_size: 1024
 
 actor:
   num_actors: 2
@@ -13,9 +13,9 @@ actor:
   max_steps: 100
 
 learner:
-  batch_size: 16
+  batch_size: 256
   beta: 0.01 # authors used: 0.01, generally 0.99 gave much less stable results
-  max_steps: 400
+  max_steps: 800
   lr_pol: 0.000013 # learning rates of authors
   lr_val: 0.00013
   clip_eps: 0.1 # eye-balled, tried 0.2 as well
