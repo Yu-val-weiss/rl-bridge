@@ -26,8 +26,8 @@ replay_buffer:
   max_capacity: 10000
 
 wandb:
-  run_name: test_1
+  run_name: 50k_test
 
-checkpoint_path: checkpoints/20k_test
-checkpoint_every: 30
+checkpoint_path: checkpoints/50k_test
+checkpoint_every: 1000
 load_policy_net: sl/policy_net.pt
