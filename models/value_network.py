@@ -1,3 +1,4 @@
+import copy
 from dataclasses import asdict
 
 import torch
@@ -29,7 +30,7 @@ class ValueNetwork(Network["ValueNetwork"]):
             input_size=self.input_size,
             hidden_size=self.hidden_size,
         )
-        new_model.load_state_dict(self.state_dict())
+        new_model.load_state_dict(copy.deepcopy(self.state_dict()))
         return new_model
 
     def get_init_config(self) -> dict[str, int]:
