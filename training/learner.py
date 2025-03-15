@@ -2,7 +2,7 @@ import logging
 import pathlib
 import threading
 from dataclasses import asdict
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 import torch.optim as optim
@@ -182,91 +182,98 @@ class Learner:
                     x.set()
             if i % checkpoint_every == 0:
                 self.logger.info(f"saving at step {i}")
-                self.save(ckp / f"step_{i}.pt")
+                step_ckp = ckp / f"step_{i}"
+                self.save_step(step_ckp)
 
-        self.save(ckp / f"step_{self.max_steps}.pt")
+        step_ckp = ckp / f"step_{self.max_steps}"
+        self.save_step(step_ckp)
         self.logger.info(f"iteration complete at step {self.max_steps}")
 
-    def save(self, path: pathlib.Path):
+    def save_step(self, path: pathlib.Path):
+        path.mkdir(parents=True, exist_ok=True)
         checkpoint = {
             "policy_net": {
                 "config": self.policy_net.get_init_config(),
                 "state_dict": self.policy_net.state_dict(),
-                "optimizer": self.policy_optimizer.state_dict(),
                 "lr": self.lr_pol,
             },
+            "policy_net_opt": self.policy_optimizer.state_dict(),
             "value_net": {
                 "config": self.value_net.get_init_config(),
                 "state_dict": self.value_net.state_dict(),
-                "optimizer": self.value_optimizer.state_dict(),
                 "lr": self.lr_val,
             },
-            "beta": self.beta,
-            "batch_size": self.batch_size,
-            "clip_eps": self.clip_eps,
+            "value_net_opt": self.value_optimizer.state_dict(),
+            "self": {
+                "beta": self.beta,
+                "batch_size": self.batch_size,
+                "clip_eps": self.clip_eps,
+            },
         }
-        torch.save(checkpoint, path)
+        for key, value in checkpoint.items():
+            torch.save(value, path / f"{key}.pt")
 
-    @classmethod
-    def from_checkpoint(
-        cls,
-        checkpoint_path: str,
-        replay_buffer: TensorDictReplayBuffer,
-        net_lock: MRSWLock,
-    ):
-        """
-        Create a new Learner instance from a checkpoint file.
+    # @classmethod
+    # def from_checkpoint(
+    #     cls,
+    #     checkpoint_path: str,
+    #     replay_buffer: TensorDictReplayBuffer,
+    #     net_lock: MRSWLock,
+    # ):
+    #     """
+    #     Create a new Learner instance from a checkpoint file.
 
-        Args:
-            checkpoint_path (str): Path to the checkpoint file
-            replay_buffer (TensorDictReplayBuffer): Replay buffer to use
-            net_lock (MRSWLock, optional): Lock for thread safety
+    #     Args:
+    #         checkpoint_path (str): Path to the checkpoint file
+    #         replay_buffer (TensorDictReplayBuffer): Replay buffer to use
+    #         net_lock (MRSWLock, optional): Lock for thread safety
 
-        Returns:
-            Learner: A new instance initialized with the checkpoint's weights and config
-        """
-        checkpoint = torch.load(checkpoint_path, map_location=get_device())
+    #     Returns:
+    #         Learner: A new instance initialized with the checkpoint's weights and config
+    #     """
+    #     checkpoint = torch.load(checkpoint_path, map_location=get_device())
 
-        # Create networks with correct architecture
-        policy_net = PolicyNetwork(**checkpoint["policy_net"]["config"])
-        value_net = ValueNetwork(**checkpoint["value_net"]["config"])
+    #     # Create networks with correct architecture
+    #     policy_net = PolicyNetwork(**checkpoint["policy_net"]["config"])
+    #     value_net = ValueNetwork(**checkpoint["value_net"]["config"])
 
-        # Create learner instance
-        learner = cls(
-            policy_net=policy_net,
-            value_net=value_net,
-            replay_buffer=replay_buffer,
-            batch_size=checkpoint["batch_size"],
-            beta=checkpoint["beta"],
-            lr_pol=checkpoint["policy_net"]["lr"],
-            lr_val=checkpoint["value_net"]["lr"],
-            net_lock=net_lock,
-            clip_eps=checkpoint["clip_eps"],
-        )
+    #     # Create learner instance
+    #     learner = cls(
+    #         policy_net=policy_net,
+    #         value_net=value_net,
+    #         replay_buffer=replay_buffer,
+    #         batch_size=checkpoint["batch_size"],
+    #         beta=checkpoint["beta"],
+    #         lr_pol=checkpoint["policy_net"]["lr"],
+    #         lr_val=checkpoint["value_net"]["lr"],
+    #         net_lock=net_lock,
+    #         clip_eps=checkpoint["clip_eps"],
+    #     )
 
-        # Load states
-        learner.load(pathlib.Path(), checkpoint)
-        return learner
+    #     # Load states
+    #     learner.load(pathlib.Path(), checkpoint)
+    #     return learner
 
-    def load(
-        self, checkpoint_path: pathlib.Path, checkpoint_dict: Optional[dict] = None
-    ):
+    def load(self, checkpoint_path: pathlib.Path):
         """
         Load the learner's state from a checkpoint file.
 
         Args:
             checkpoint_path (str): Path to the checkpoint file
         """
-        checkpoint = checkpoint_dict or torch.load(
-            checkpoint_path, map_location=self.device
-        )
+
+        checkpoint = {
+            ckp_file.with_suffix("").name: torch.load(ckp_file)
+            for ckp_file in checkpoint_path.iterdir()
+        }
 
         self.policy_net.load_state_dict(checkpoint["policy_net"]["state_dict"])
         self.value_net.load_state_dict(checkpoint["value_net"]["state_dict"])
-        self.policy_optimizer.load_state_dict(checkpoint["policy_net"]["optimizer"])
-        self.value_optimizer.load_state_dict(checkpoint["value_net"]["optimizer"])
-        self.beta = checkpoint["beta"]
-        self.batch_size = checkpoint["batch_size"]
+        self.policy_optimizer.load_state_dict(checkpoint["policy_net_opt"])
+        self.value_optimizer.load_state_dict(checkpoint["value_net_opt"])
+        self.beta = checkpoint["self"]["beta"]
+        self.batch_size = checkpoint["self"]["batch_size"]
+        self.clip_eps = checkpoint["self"]["clip_eps"]
 
     @classmethod
     def from_config(

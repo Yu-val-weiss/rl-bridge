@@ -1,0 +1,32 @@
+policy_net:
+  input_size: 84
+  hidden_size: 50
+  output_size: 9
+
+value_net:
+  input_size: 84
+  hidden_size: 50
+
+actor:
+  num_actors: 2
+  sync_frequency: 10
+  max_steps: 100
+
+learner:
+  batch_size: 10
+  beta: 0.01 # authors used: 0.01, generally 0.99 gave much less stable results
+  max_steps: 50000
+  lr_pol: 0.000013 # learning rates of authors
+  lr_val: 0.00013
+  clip_eps: 0.1 # eye-balled, tried 0.2 as well
+
+replay_buffer:
+  alpha: 0.5
+  beta: 0.5
+  max_capacity: 10000
+
+wandb: null
+
+checkpoint_path: checkpoints/debugging
+checkpoint_every: 10
+# load_policy_net: sl/policy_net.pt
