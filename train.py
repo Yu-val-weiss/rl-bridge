@@ -152,7 +152,7 @@ def get_step(path: pathlib.Path):
 
 
 def get_latest_checkpoint(checkpoint_path: pathlib.Path):
-    checkpoints = list(checkpoint_path.glob("*.pt"))
+    checkpoints = list(checkpoint_path.glob("step_*"))
     if checkpoints:
         return max(checkpoints, key=get_step)
     return None
