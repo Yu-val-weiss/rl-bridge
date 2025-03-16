@@ -47,8 +47,8 @@ class BMCS:
 
         hands_probs = (
             self.belief_net(obs).cpu().detach().numpy()
-        )  # shape [batch_size = 1, 3, 8]
-        hands_probs = hands_probs.squeeze(0)
+        )  # shape [batch_size = 1, 24]
+        hands_probs = hands_probs.squeeze(0).reshape(3, 8)  # reshape to [3, 8]
         num_players = hands_probs.shape[0]
 
         dealt_cards = set(known_hand)
