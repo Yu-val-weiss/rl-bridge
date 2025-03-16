@@ -11,20 +11,6 @@ from models import BeliefNetwork, PolicyNetwork
 
 
 @pytest.fixture
-def card_mapping():
-    return {
-        "HJ": 0,  # Hearts, Jack
-        "HQ": 1,  # Hearts, Queen
-        "HK": 2,  # Hearts, King
-        "HA": 3,  # Hearts, Ace
-        "SJ": 4,  # Spades, Jack
-        "SQ": 5,  # Spades, Queen
-        "SK": 6,  # Spades, King
-        "SA": 7,  # Spades, Ace
-    }
-
-
-@pytest.fixture
 def policy_net():
     # Setup the environment for the Policy Network
     env = Environment("tiny_bridge_4p")
