@@ -28,8 +28,11 @@ class BMCSAgent(rl_agent.AbstractAgent):
         Returns:
           A `rl_agent.StepOutput` containing the action probs and chosen action. NOTE: always outputs full (9) action probs!
         """
+        if time_step.last():
+            return rl_agent.StepOutput(action=None, probs=None)
+
         action = self._bmcs.search(time_step)
 
         # NOTE: should probably return a probability but BMCS search
         # doesn't. Tbf I'm not sure when we actually will need these probabilities lol.
-        return rl_agent.StepOutput(action=action, probs=())
+        return rl_agent.StepOutput(action=action, probs=None)

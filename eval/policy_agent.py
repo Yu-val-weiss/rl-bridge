@@ -31,6 +31,9 @@ class PolicyAgent(rl_agent.AbstractAgent):
         Returns:
           A `rl_agent.StepOutput` containing the action probs and chosen action. NOTE: always outputs full (9) action probs!
         """
+        if time_step.last():
+            return rl_agent.StepOutput(action=None, probs=None)
+
         info_state = time_step.observations["info_state"][self._player_id]
         obs = torch.tensor(info_state, dtype=torch.float32, device=get_device())
         legal_actions = time_step.observations["legal_actions"][self._player_id]
