@@ -2,6 +2,7 @@ import copy
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pyspiel
 import pytest
 import torch
 from open_spiel.python.rl_environment import Environment, TimeStep
@@ -284,11 +285,10 @@ def test_search_fallback_to_policy(
     bmcs.rollout = MagicMock()
     bmcs.rollout.return_value = 0.5
     bmcs.sample_deal = MagicMock()
-    bmcs.sample_deal.return_value = "W:SJHJ N:SKHK E:SASQ S:HAHQ"
+    bmcs.sample_deal.return_value = "14\n2\n18\n21"  # W:SJHJ N:SKHK E:SASQ S:HAHQ
 
     # Call search
     best_action = bmcs.search(mock_time_step)
-
     # The best action should be 3 based on policy network (highest probability is 0.9)
     assert best_action == 3
     # Verify rollout was not called (p_max is 0)
@@ -306,6 +306,7 @@ def test_search_with_action_history(
     past_action_step = MagicMock()
     past_action_step.observations = mock_time_step.observations
     mock_environment.step.return_value = past_action_step
+    mock_environment.game.return_value = pyspiel.load_game("tiny_bridge_4p")
 
     # Create BMCS instance
     bmcs = BMCS(
@@ -324,7 +325,7 @@ def test_search_with_action_history(
     bmcs.rollout = MagicMock()
     bmcs.rollout.return_value = 0.5
     bmcs.sample_deal = MagicMock()
-    bmcs.sample_deal.return_value = "W:SJHJ N:SKHK E:SASQ S:HAHQ"
+    bmcs.sample_deal.return_value = "14\n2\n18\n21"  # W:SJHJ N:SKHK E:SASQ S:HAHQ
 
     # Patch random to control action filter behavior
     with patch("numpy.random.rand", return_value=1.0):  # Always include past actions
