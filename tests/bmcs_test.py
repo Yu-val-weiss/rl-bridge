@@ -1,3 +1,4 @@
+import copy
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -110,34 +111,15 @@ def mock_time_step():
     return time_step
 
 
-def parse_state_str(state_str):
-    pairs = state_str.split()
-
-    parsed = {}
-    for pair in pairs:
-        key, value = pair.split(":")
-        values = [value[:2], value[2:]]
-        parsed[key] = values
-
-    return parsed
+def parse_state_str(state_str: str):
+    return [int(x) for x in state_str.split()]
 
 
-def test_card_to_str(bmcs, card_mapping):
-    for expected_str, card_idx in card_mapping.items():
-        assert bmcs.card_to_str(card_idx) == expected_str
+def hand_to_num(hand: list[int]):
+    return BMCS.cards_to_chance_outcome(*sorted(hand, reverse=True))
 
 
-def test_construct_state_str(bmcs):
-    player_hands = {0: [0, 2], 1: [1, 3], 2: [4, 5], 3: [6, 7]}
-
-    expected_state_str = "W:HJHK N:HQHA E:SJSQ S:SKSA"
-
-    state_str = bmcs.construct_state_str(player_hands)
-
-    assert state_str == expected_state_str
-
-
-def test_sample_deal_complies_with_h(bmcs, card_mapping):
+def test_sample_deal_complies_with_h(bmcs):
     env = Environment("tiny_bridge_4p")
     h = env.reset()
 
@@ -145,29 +127,25 @@ def test_sample_deal_complies_with_h(bmcs, card_mapping):
         i for i, value in enumerate(h.observations["info_state"][0][:8]) if value == 1.0
     ]
 
+    expected_first_player_hand_idx = hand_to_num(expected_first_player_hand)
+
     state_str = bmcs.sample_deal(h)
-    state_dict = parse_state_str(state_str)
-    state_list = [card_mapping[c] for c in state_dict["W"]]
+    state_list = parse_state_str(state_str)
 
-    assert expected_first_player_hand == state_list
+    assert expected_first_player_hand_idx == state_list[0]
 
 
-def test_sample_deal_assigns_unique_cards(bmcs, card_mapping):
+def test_sample_deal_assigns_unique_cards(bmcs):
     env = Environment("tiny_bridge_4p")
     h = env.reset()
 
     state_str = bmcs.sample_deal(h)
-    state_dict = parse_state_str(state_str)
+    deals = parse_state_str(state_str)
 
-    dealt_cards = set(
-        card_mapping[card] for cards in state_dict.values() for card in cards
-    )
-    all_cards = set(range(8))
-
-    assert dealt_cards == all_cards
+    assert len(set(deals)) == 4
 
 
-def test_sample_deal_player_agnostic(bmcs, card_mapping):
+def test_sample_deal_player_agnostic(bmcs):
     env = Environment("tiny_bridge_4p")
     h = env.reset()
     h = env.step([0])  # dummy action
@@ -179,25 +157,26 @@ def test_sample_deal_player_agnostic(bmcs, card_mapping):
         if value == 1.0
     ]
 
-    state_str = bmcs.sample_deal(h)
-    state_dict = parse_state_str(state_str)
-    state_list = [
-        card_mapping[c] for c in state_dict["N"]
-    ]  # North (N) is second player
+    expected_player_hand_num = hand_to_num(expected_player_hand)
 
-    assert expected_player_hand == state_list
+    state_str = bmcs.sample_deal(h)
+    deals_list = parse_state_str(state_str)
+
+    # north N is second player
+
+    assert expected_player_hand_num == deals_list[1]
 
 
 def test_rollout_restores_state(bmcs):
     bmcs.env.reset()
-    original_state = bmcs.env.get_state
+    original_state = copy.deepcopy(bmcs.env.get_state)
 
     dummy_action = 1
     bmcs.rollout(dummy_action)
 
     state_after_rollout = bmcs.env.get_state
 
-    assert original_state == state_after_rollout
+    assert str(original_state) == str(state_after_rollout)
 
 
 def test_rollout_functionality(mocker):

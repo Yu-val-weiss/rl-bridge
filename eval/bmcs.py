@@ -1,3 +1,4 @@
+import copy
 from typing import Dict, List, TypeVar
 
 import numpy as np
@@ -94,7 +95,9 @@ class BMCS:
 
     def rollout(self, action: int) -> float:
         """Performs a rollout and restores the original state afterward."""
-        original_state = self.env.get_state  # Save the current state
+
+        # save the current state, need to copy otherwise state will get modified
+        original_state = copy.deepcopy(self.env.get_state)
 
         time_step = self.env.step([action])
         original_player = (time_step.observations["current_player"] - 1) % 4
@@ -122,34 +125,30 @@ class BMCS:
 
         return reward
 
-    def card_to_str(self, card_idx: int) -> str:
-        """
-        Converts a card index to its string representation.
-        All the logic is taken from the tiny_bridge.cc code.
-        """
+    @staticmethod
+    def cards_to_chance_outcome(card0: int, card1: int):
+        """Requires card0 > card1 in value.
 
-        suits = ["H", "S", "N"]
-        ranks = ["J", "Q", "K", "A"]
-
-        suit = suits[card_idx // len(ranks)]
-        rank = ranks[card_idx % len(ranks)]
-
-        return f"{suit}{rank}"
+        Converts the 2 cards in a hand (by index) to the action index in the deal phase.
+        Taken from the c++ implementation of tiny bridge"""
+        return int((card0 * (card0 - 1)) / 2 + card1)
 
     def construct_state_str(self, player_hands: Dict[int, List[int]]) -> str:
         """Constructs a Tiny Bridge state string from sampled player hands."""
-        hand_strs = {0: "W:", 1: "N:", 2: "E:", 3: "S:"}
-
+        state = []
         # Convert hands into formatted strings
-        for player, cards in player_hands.items():
-            hand_strs[player] += "".join(
-                self.card_to_str(card) for card in sorted(cards)
+        sorted_hands = [player_hands[key] for key in sorted(player_hands.keys())]
+        for cards in sorted_hands:
+            assert len(cards) == 2
+
+            state.append(
+                str(self.cards_to_chance_outcome(*sorted(cards, reverse=True)))
             )
 
         # Combine hands into the state string
-        state_str = " ".join(hand_strs.values())
+        state_str = "\n".join(state)
 
-        return state_str  # Example: "W:HQHJ N:SKHA E:SASJ S:SQHK"
+        return state_str  # Example: "24\n2\n15\n14"
 
     def search(self, h: TimeStep) -> int:
         """Performs Belief Monte Carlo Search and returns the best action."""
@@ -172,7 +171,8 @@ class BMCS:
         R, P = 0, 0
 
         while P < self.p_max and R < self.r_max:
-            new_state = self.sample_deal(h)
+            new_state_str = self.sample_deal(h)
+            new_state = self.env.game.deserialize_state(new_state_str)  # type: ignore
             self.env.set_state(new_state)
             h_new = self.env.get_time_step()
 
