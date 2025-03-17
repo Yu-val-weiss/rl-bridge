@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 
 import wandb
 from models import BeliefNetwork
+from utils import get_device
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +40,7 @@ def train_belief_network(
     patience: int = 5,
     model_path: Optional[str] = None,
     hidden_size: int = 248,
+    six_hot_lambda: float = 0.1,
 ):
     dataset = load_data(data_path)
 
@@ -68,14 +70,28 @@ def train_belief_network(
 
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)  # weight_decay=l2
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, "min", patience=2, factor=0.5
+    )
 
     time_stamp = time.strftime("%Y%m%d-%H%M%S")
-    wandb.init(project="RL", name=f"belief_network_{time_stamp}")
+    wandb.init(
+        project="RL",
+        entity="biermann-carla-university-of-cambridge",
+        name=f"belief_network_{time_stamp}",
+    )
     wandb.watch(model, log="all")
 
     best_val_loss = float("inf")
     patience_counter = 0
     best_model_state = None
+
+    def compute_loss(outputs, batch_y):
+        # calculate 6-hot penalty
+        sum_penalty = (torch.sum(outputs, dim=1) - 6.0).pow(2).mean()
+        return (
+            criterion(outputs, batch_y.to(get_device())) + six_hot_lambda * sum_penalty
+        )
 
     loss = torch.tensor([0.0])
     for epoch in range(epochs):
@@ -83,7 +99,7 @@ def train_belief_network(
         for batch_x, batch_y in train_loader:
             optimizer.zero_grad()
             outputs = model(batch_x)
-            loss = criterion(outputs, batch_y)
+            loss = compute_loss(outputs, batch_y)
             loss.backward()
             optimizer.step()
 
@@ -92,12 +108,13 @@ def train_belief_network(
         with torch.no_grad():
             for batch_x, batch_y in val_loader:
                 outputs = model(batch_x)
-                loss = criterion(outputs, batch_y)
+                loss = compute_loss(outputs, batch_y)
                 val_loss += loss.item()
+        scheduler.step(val_loss)
 
         val_loss /= len(val_loader)
         print(
-            f"Epoch [{epoch + 1}/{epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss:.4f}"
+            f"Epoch [{epoch + 1}/{epochs}], Training Loss: {loss.item():.4f}, Validation Loss: {val_loss:.4f}, LR: {scheduler.get_last_lr()[0]}"
         )
 
         # Log the losses to wandb
@@ -130,7 +147,7 @@ def train_belief_network(
     with torch.no_grad():
         for batch_x, batch_y in test_loader:
             outputs = model(batch_x)
-            loss = criterion(outputs, batch_y)
+            loss = compute_loss(outputs, batch_y)
             test_loss += loss.item()
 
     test_loss /= len(test_loader)
@@ -191,6 +208,20 @@ def train_belief_network(
     type=float,
     help="Dropout rate for training. Default: 10%",
 )
+@click.option(
+    "-lam",
+    "--six_hot_lambda",
+    default=0.1,
+    type=float,
+    help="Six hot lambda",
+)
+@click.option(
+    "-p",
+    "--patience",
+    default=5,
+    type=int,
+    help="Patience for early stopping",
+)
 def train_belief(
     dataset_path: pathlib.Path,
     epochs: int,
@@ -198,6 +229,8 @@ def train_belief(
     learning_rate: float,
     hidden_size: int,
     dropout_rate: float,
+    six_hot_lambda: float,
+    patience: int,
 ):
     # Train the belief network
     train_belief_network(
@@ -207,6 +240,8 @@ def train_belief(
         learning_rate=learning_rate,
         dropout_rate=dropout_rate,
         hidden_size=hidden_size,
+        six_hot_lambda=six_hot_lambda,
+        patience=patience,
     )
 
 

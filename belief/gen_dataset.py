@@ -143,7 +143,7 @@ class DataGenerator:
     help="Size of the output layer",
 )
 @click.option(
-    "-n",
+    "-i",
     "--input_size",
     default=84,
     type=int,
