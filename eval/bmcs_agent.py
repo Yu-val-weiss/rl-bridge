@@ -17,6 +17,8 @@ class BMCSAgent(rl_agent.AbstractAgent):
         self._player_id = player_id
         self._num_actions = num_actions
         self._bmcs = bmcs
+        self._bmcs.belief_net.eval()
+        self._bmcs.policy_net.eval()
 
     def step(self, time_step: TimeStep, is_evaluation=False):
         """Returns the action to be taken and updates the Q-values if needed.

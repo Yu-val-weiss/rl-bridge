@@ -159,8 +159,10 @@ class BMCS:
                 torch.tensor(
                     h.observations["info_state"][current_player],
                     dtype=torch.float32,
+                    device=self.device,
                 )
             )
+            .cpu()
             .detach()
             .numpy()
         )

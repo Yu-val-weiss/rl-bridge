@@ -5,12 +5,15 @@ from typing import Callable
 
 import torch
 from open_spiel.python.algorithms.random_agent import RandomAgent
+from open_spiel.python.algorithms.tabular_qlearner import QLearner
 from open_spiel.python.rl_agent import AbstractAgent
 from open_spiel.python.rl_environment import Environment, TimeStep
 from tqdm import trange
 
-from models import PolicyNetwork
+from models import BeliefNetwork, PolicyNetwork
 
+from .bmcs import BMCS
+from .bmcs_agent import BMCSAgent
 from .policy_agent import PolicyAgent
 
 AgentFactory = Callable[[int], AbstractAgent]
@@ -149,13 +152,51 @@ if __name__ == "__main__":
         net.load_state_dict(torch.load("sl/policy_net.pt"))
         return PolicyAgent(player_id=0, num_actions=9, policy_network=net)
 
-    num_runs = 10_000  # matches paper
+    def bmcsagent():
+        belief_net = BeliefNetwork(hidden_size=20)
+        belief_net.load_state_dict(
+            torch.load("belief/belief_net_lr_0.001_dropout_0.1_hidden_20.pth")
+        )
+        policy_net = PolicyNetwork(9, 84, 2048)
+        policy_net.load_state_dict(torch.load("sl/policy_net.pt"))
+        bmcs = BMCS(belief_net, policy_net, [], r_max=50, p_max=50)
+        return BMCSAgent(0, 9, bmcs)
 
-    s = Scorer(prlagent(), ragent())
-    print(f"A: RL, B: RAND = {s.score(num_runs)}")
+    def qagent(warmup: int = 1_000):
+        qagent = QLearner(0, num_actions=9)
+        env = Environment("tiny_bridge_4p")
+        for _ in trange(warmup, desc="warming up q learner"):
+            t_s = env.reset()
+            while not t_s.last():
+                player_id = t_s.current_player()
+                qagent._player_id = player_id
+                agent_output = qagent.step(t_s)
+                if agent_output is None:
+                    raise ValueError("got unexpected None output")
+                t_s = env.step([agent_output.action])
+            qagent.step(t_s)
 
-    s = Scorer(pslagent(), ragent())
-    print(f"A: SL, B: RAND = {s.score(num_runs)}")
+        return qagent
 
-    s = Scorer(pslagent(), prlagent())
-    print(f"A: SL, B: RL = {s.score(num_runs)}")
+    # num_runs = 10_000  # matches paper
+    num_runs = 1_000
+
+    # s = Scorer(prlagent(), ragent())
+    # print(f"A: RL, B: RAND = {s.score(num_runs)}")
+
+    # s = Scorer(pslagent(), ragent())
+    # print(f"A: SL, B: RAND = {s.score(num_runs)}")
+
+    # s = Scorer(pslagent(), prlagent())
+    # print(f"A: SL, B: RL = {s.score(num_runs)}")
+
+    q = qagent(100_000)
+
+    s = Scorer(q, ragent())
+    print(f"A: Q, B: RAND = {s.score(num_runs)}")
+
+    s = Scorer(q, pslagent())
+    print(f"A: Q, B: SL = {s.score(num_runs)}")
+
+    # s = Scorer(bmcsagent(), prlagent())
+    # print(f"A: BMCS(SL), B: RAND = {s.score(num_runs)}")
