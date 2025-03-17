@@ -235,5 +235,5 @@ if __name__ == "__main__":
         results.append(score_str)
         pbar.write(score_str)
 
-    with open("eval/results.txt", "w") as f:
-        f.write("\n".join(results))
+        with open("eval/results.txt", "w") as f:
+            f.write("\n".join(results))
