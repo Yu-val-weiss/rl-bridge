@@ -357,12 +357,11 @@ def test_search_action_filtering(mock_environment, mock_belief_net, mock_time_st
     )
 
     # Mocks
-    bmcs.env = mock_environment
     bmcs.rollout = MagicMock()
     bmcs.rollout.side_effect = lambda action: {1: 0.3, 3: 0.8}.get(action, 0.1)
 
     bmcs.sample_deal = MagicMock()
-    bmcs.sample_deal.return_value = "W:SJHJ N:SKHK E:SASQ S:HAHQ"
+    bmcs.sample_deal.return_value = "14\n2\n18\n21"  # W:SJHJ N:SKHK E:SASQ S:HAHQ
 
     # Call search
     best_action = bmcs.search(mock_time_step)
