@@ -98,10 +98,6 @@ def mock_time_step():
     return time_step
 
 
-def parse_state_str(state_str: str):
-    return [int(x) for x in state_str.split()]
-
-
 def hand_to_num(hand: list[int]):
     return BMCS.cards_to_chance_outcome(*sorted(hand, reverse=True))
 
@@ -116,20 +112,18 @@ def test_sample_deal_complies_with_h(bmcs):
 
     expected_first_player_hand_idx = hand_to_num(expected_first_player_hand)
 
-    state_str = bmcs.sample_deal(h)
-    state_list = parse_state_str(state_str)
+    required_deals = bmcs.sample_deal(h)
 
-    assert expected_first_player_hand_idx == state_list[0]
+    assert expected_first_player_hand_idx == required_deals[0]
 
 
 def test_sample_deal_assigns_unique_cards(bmcs):
     env = Environment("tiny_bridge_4p")
     h = env.reset()
 
-    state_str = bmcs.sample_deal(h)
-    deals = parse_state_str(state_str)
+    required_deals = bmcs.sample_deal(h)
 
-    assert len(set(deals)) == 4
+    assert len(set(required_deals)) == 4
 
 
 def test_sample_deal_player_agnostic(bmcs):
@@ -146,12 +140,11 @@ def test_sample_deal_player_agnostic(bmcs):
 
     expected_player_hand_num = hand_to_num(expected_player_hand)
 
-    state_str = bmcs.sample_deal(h)
-    deals_list = parse_state_str(state_str)
+    req_deals = bmcs.sample_deal(h)
 
     # north N is second player
 
-    assert expected_player_hand_num == deals_list[1]
+    assert expected_player_hand_num == req_deals[1]
 
 
 def test_rollout_restores_state(bmcs):
@@ -252,7 +245,7 @@ def test_search_returns_best_action(
 
     # Mock sample_deal to return a fixed state
     bmcs.sample_deal = MagicMock()
-    bmcs.sample_deal.return_value = "W:SJHJ N:SKHK E:SASQ S:HAHQ"
+    bmcs.sample_deal.return_value = [14, 2, 18, 21]  # W:SJHJ N:SKHK E:SASQ S:HAHQ
 
     # Call search
     best_action = bmcs.search(mock_time_step)
@@ -285,7 +278,7 @@ def test_search_fallback_to_policy(
     bmcs.rollout = MagicMock()
     bmcs.rollout.return_value = 0.5
     bmcs.sample_deal = MagicMock()
-    bmcs.sample_deal.return_value = "14\n2\n18\n21"  # W:SJHJ N:SKHK E:SASQ S:HAHQ
+    bmcs.sample_deal.return_value = [14, 2, 18, 21]  # W:SJHJ N:SKHK E:SASQ S:HAHQ
 
     # Call search
     best_action = bmcs.search(mock_time_step)
@@ -325,7 +318,7 @@ def test_search_with_action_history(
     bmcs.rollout = MagicMock()
     bmcs.rollout.return_value = 0.5
     bmcs.sample_deal = MagicMock()
-    bmcs.sample_deal.return_value = "14\n2\n18\n21"  # W:SJHJ N:SKHK E:SASQ S:HAHQ
+    bmcs.sample_deal.return_value = [14, 2, 18, 21]  # W:SJHJ N:SKHK E:SASQ S:HAHQ
 
     # Patch random to control action filter behavior
     with patch("numpy.random.rand", return_value=1.0):  # Always include past actions
@@ -361,7 +354,7 @@ def test_search_action_filtering(mock_environment, mock_belief_net, mock_time_st
     bmcs.rollout.side_effect = lambda action: {1: 0.3, 3: 0.8}.get(action, 0.1)
 
     bmcs.sample_deal = MagicMock()
-    bmcs.sample_deal.return_value = "14\n2\n18\n21"  # W:SJHJ N:SKHK E:SASQ S:HAHQ
+    bmcs.sample_deal.return_value = [14, 2, 18, 21]  # W:SJHJ N:SKHK E:SASQ S:HAHQ
 
     # Call search
     best_action = bmcs.search(mock_time_step)

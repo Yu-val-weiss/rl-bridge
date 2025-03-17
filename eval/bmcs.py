@@ -1,5 +1,5 @@
 import copy
-from typing import Dict, List, TypeVar
+from typing import TypeVar
 
 import numpy as np
 import torch
@@ -7,6 +7,8 @@ from open_spiel.python.rl_environment import Environment, TimeStep
 
 from models import BeliefNetwork, Network
 from utils import get_device
+
+from .sampler import HandDealer
 
 PolicyNet = TypeVar("PolicyNet", bound=Network)
 
@@ -16,7 +18,7 @@ class BMCS:
         self,
         belief_net: BeliefNetwork,
         policy_net: Network[PolicyNet],
-        action_history: List[int],
+        action_history: list[int],
         r_min: int = 5,  # minimum number of rollouts
         r_max: int = 100,  # maximum number of rollouts
         p_max: int = 100,  # maximum number of deals to sample
@@ -31,14 +33,14 @@ class BMCS:
         self.p_min = p_min
         self.k = k
         self.action_history = action_history
-        self.env = Environment("tiny_bridge_4p")
+        self.dealer = HandDealer()
+        self.env = Environment("tiny_bridge_4p", chance_event_sampler=self.dealer)
         self.device = get_device()
 
-    def sample_deal(self, h: TimeStep) -> str:
-        """Samples a deal consistent with the belief distribution and returns the state string."""
+    def sample_deal(self, h: TimeStep) -> list[int]:
+        """Samples a deal consistent with the belief distribution and returns the deal actions necessary to construct it."""
         current_player = h.observations["current_player"]
-        known_hand_vector = h.observations["info_state"][current_player][:8]
-        known_hand = [i for i, value in enumerate(known_hand_vector) if value == 1.0]
+        known_hand = self.get_known_hand(h, current_player)
         obs = torch.tensor(
             h.observations["info_state"][current_player],
             dtype=torch.float32,
@@ -55,7 +57,7 @@ class BMCS:
         dealt_cards = set(known_hand)
         player_hands = {current_player: known_hand}
 
-        for player_idx in range(num_players):
+        for player_idx in range(num_players):  # iterate through other players
             card_probs = hands_probs[player_idx].copy()
 
             # Zero out already dealt cards
@@ -87,11 +89,39 @@ class BMCS:
 
             # TODO: look into whether this is the right logic. If player 2 is playing, what does the belief
             # network output represent? What order do the outputs of the belief network go in?
-            player_hands[(current_player + player_idx + 1) % 4] = sampled_hand
+            sample_player_idx = (
+                player_idx if player_idx < current_player else player_idx + 1
+            )
+            player_hands[sample_player_idx] = sampled_hand
 
-        state_str = self.construct_state_str(player_hands)
+        deals = self.construct_deal_actions(player_hands)
 
-        return state_str
+        return deals
+
+    def get_known_hand(self, ts: TimeStep, current_player: int):
+        def extract_from_info_tensor(info_tensor):
+            khv = info_tensor[:8]
+            return [i for i, value in enumerate(khv) if value == 1.0]
+
+        known_hand = extract_from_info_tensor(
+            ts.observations["info_state"][current_player]
+        )
+        if len(known_hand) != 2:
+            # fallback option, hacky but works
+            state_to_deserialize = (
+                ts.observations["serialized_state"]
+                .lower()
+                .split("[state]")[1]
+                .strip()
+                .split("\n")[:4]
+            )
+
+            state = self.env.game.deserialize_state("\n".join(state_to_deserialize))  # type: ignore
+            known_hand = extract_from_info_tensor(
+                state.information_state_tensor(current_player)
+            )
+
+        return known_hand
 
     def rollout(self, action: int) -> float:
         """Performs a rollout and restores the original state afterward."""
@@ -133,24 +163,27 @@ class BMCS:
         Taken from the c++ implementation of tiny bridge"""
         return int((card0 * (card0 - 1)) / 2 + card1)
 
-    def construct_state_str(self, player_hands: Dict[int, List[int]]) -> str:
-        """Constructs a Tiny Bridge state string from sampled player hands."""
-        state = []
+    @staticmethod
+    def construct_deal_actions(player_hands: dict[int, list[int]]) -> list[int]:
+        """Constructs the sequence of deal actions to create sampled player hands."""
+        deals = []
         # Convert hands into formatted strings
         sorted_hands = [player_hands[key] for key in sorted(player_hands.keys())]
         for cards in sorted_hands:
-            assert len(cards) == 2
+            assert len(cards) == 2, f"expected 2, got {len(cards)}"
+            deals.append(BMCS.cards_to_chance_outcome(*sorted(cards, reverse=True)))
 
-            state.append(
-                str(self.cards_to_chance_outcome(*sorted(cards, reverse=True)))
-            )
+        return deals
 
-        # Combine hands into the state string
-        state_str = "\n".join(state)
+    def real_deal_from_ts(self, ts: TimeStep) -> list[int]:
+        player_hands = {}
+        for i in range(4):
+            cards = self.get_known_hand(ts, i)
+            assert len(cards) == 2, f"got {len(cards)}"
+            player_hands[i] = cards
+        return BMCS.construct_deal_actions(player_hands)
 
-        return state_str  # Example: "24\n2\n15\n14"
-
-    def search(self, h: TimeStep) -> int:
+    def search(self, h: TimeStep, *, use_ground_truth: bool = False) -> int:
         """Performs Belief Monte Carlo Search and returns the best action."""
         current_player = h.observations["current_player"]
 
@@ -169,14 +202,17 @@ class BMCS:
         top_actions = np.argsort(action_probs)[-self.k :]
         valid_actions = [a for a in top_actions if action_probs[a] > self.p_min]
 
-        V: Dict[int, float] = {a: 0 for a in valid_actions}
+        V: dict[int, float] = {a: 0 for a in valid_actions}
         R, P = 0, 0
 
         while P < self.p_max and R < self.r_max:
-            new_state_str = self.sample_deal(h)
-            new_state = self.env.game.deserialize_state(new_state_str)  # type: ignore
-            self.env.set_state(new_state)
-            h_new = self.env.get_time_step()
+            deal = (
+                self.sample_deal(h)
+                if not use_ground_truth
+                else self.real_deal_from_ts(h)
+            )
+            self.dealer.seed_deal(deal)
+            h_new = self.env.reset()
 
             P += 1
 
