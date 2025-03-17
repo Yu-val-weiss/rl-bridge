@@ -149,6 +149,7 @@ def calc_imp(a: float, b: float) -> tuple[int, int]:
 
 
 if __name__ == "__main__":
+    NUM_ROLLOUTS = 30
 
     def ragent():
         return RandomAgent(player_id=0, num_actions=9)
@@ -171,7 +172,9 @@ if __name__ == "__main__":
         )
         policy_net = PolicyNetwork(9, 84, 2048)
         policy_net.load_state_dict(torch.load("sl/policy_net.pt"))
-        bmcs = BMCS(belief_net, policy_net, [], r_max=25, p_max=25)
+        bmcs = BMCS(
+            belief_net, policy_net, [], r_max=NUM_ROLLOUTS, p_max=NUM_ROLLOUTS, k=9
+        )
         return BMCSAgent(0, 9, bmcs, use_ground_truth=use_ground_truth)
 
     def qagent_warmup(warmup: int = 1_000):
@@ -193,7 +196,7 @@ if __name__ == "__main__":
                 a.step(t_s)
         return q
 
-    QAGENT_WU_STEPS = 20_000
+    QAGENT_WU_STEPS = 10_000
     q = qagent_warmup(QAGENT_WU_STEPS)
 
     def qagent():
@@ -202,9 +205,9 @@ if __name__ == "__main__":
     def mcts():
         bot = MCTSBot(
             pyspiel.load_game("tiny_bridge_4p"),
-            uct_c=math.sqrt(2) * 160,
-            max_simulations=25,
-            evaluator=RandomRolloutEvaluator(25),
+            uct_c=math.sqrt(2),
+            max_simulations=NUM_ROLLOUTS,
+            evaluator=RandomRolloutEvaluator(NUM_ROLLOUTS),
         )
         return MCTSAgent(0, 9, bot)
 
