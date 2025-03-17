@@ -1,10 +1,14 @@
 import copy
 import logging
+import math
 import random
 from itertools import combinations
 from typing import Callable
 
+import pyspiel
 import torch
+from open_spiel.python.algorithms.mcts import MCTSBot, RandomRolloutEvaluator
+from open_spiel.python.algorithms.mcts_agent import MCTSAgent
 from open_spiel.python.algorithms.random_agent import RandomAgent
 from open_spiel.python.algorithms.tabular_qlearner import QLearner
 from open_spiel.python.rl_agent import AbstractAgent
@@ -195,7 +199,16 @@ if __name__ == "__main__":
     def qagent():
         return q
 
-    num_runs = 1
+    def mcts():
+        bot = MCTSBot(
+            pyspiel.load_game("tiny_bridge_4p"),
+            uct_c=math.sqrt(2) * 160,
+            max_simulations=25,
+            evaluator=RandomRolloutEvaluator(25),
+        )
+        return MCTSAgent(0, 9, bot)
+
+    num_runs = 1_000
 
     results = [f"EVALUATION: {num_runs} games"]
 
@@ -203,6 +216,7 @@ if __name__ == "__main__":
         (ragent, "RAND"),
         (pslagent, "SL"),
         (qagent, f"Q({QAGENT_WU_STEPS})"),
+        (mcts, "MCTS"),
         (lambda: bmcsagent(use_ground_truth=False), "BMCS"),
         (lambda: bmcsagent(use_ground_truth=True), "BMCS(gt)"),
     ]
