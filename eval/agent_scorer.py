@@ -1,6 +1,7 @@
 import copy
 import logging
 import random
+from itertools import combinations
 from typing import Callable
 
 import torch
@@ -8,7 +9,7 @@ from open_spiel.python.algorithms.random_agent import RandomAgent
 from open_spiel.python.algorithms.tabular_qlearner import QLearner
 from open_spiel.python.rl_agent import AbstractAgent
 from open_spiel.python.rl_environment import Environment, TimeStep
-from tqdm import trange
+from tqdm import tqdm, trange
 
 from models import BeliefNetwork, PolicyNetwork
 
@@ -20,7 +21,13 @@ AgentFactory = Callable[[int], AbstractAgent]
 
 
 class Scorer:
-    def __init__(self, agent_a: AbstractAgent, agent_b: AbstractAgent) -> None:
+    def __init__(
+        self,
+        agent_a: AbstractAgent,
+        agent_b: AbstractAgent,
+        *,
+        include_full_state=False,
+    ) -> None:
         """Initialise the scorer
 
         Args:
@@ -31,6 +38,8 @@ class Scorer:
         self._agent_b = agent_b
 
         self._agents = (self._agent_a, self._agent_b)
+
+        self.env = Environment("tiny_bridge_4p", include_full_state=include_full_state)
 
     def _shift_agents(self):
         """Shifts agents round 1 seat
@@ -69,21 +78,20 @@ class Scorer:
         return time_step.rewards
 
     def score(self, num_deals: int):
-        env = Environment("tiny_bridge_4p")
         imps: list[tuple[int, int]] = []
-        for _ in trange(num_deals):
-            init_step = env.reset()
-            init_state = copy.deepcopy(env.get_state)
+        for _ in trange(num_deals, desc="playing games...", leave=False):
+            init_step = self.env.reset()
+            init_state = copy.deepcopy(self.env.get_state)
 
             # do stuff
-            rewards = self._play_game(env, init_step)
+            rewards = self._play_game(self.env, init_step)
 
             # shift agents
             self._shift_agents()
             # go back to same deal, use init_step unchanged
-            env.reset()
-            env.set_state(init_state)
-            second_rewards = self._play_game(env, init_step)
+            self.env.reset()
+            self.env.set_state(init_state)
+            second_rewards = self._play_game(self.env, init_step)
 
             # shift agents back
             self._shift_agents()
@@ -152,51 +160,66 @@ if __name__ == "__main__":
         net.load_state_dict(torch.load("sl/policy_net.pt"))
         return PolicyAgent(player_id=0, num_actions=9, policy_network=net)
 
-    def bmcsagent():
+    def bmcsagent(*, use_ground_truth=False):
         belief_net = BeliefNetwork(hidden_size=20)
         belief_net.load_state_dict(
             torch.load("belief/belief_net_lr_0.001_dropout_0.1_hidden_20.pth")
         )
         policy_net = PolicyNetwork(9, 84, 2048)
         policy_net.load_state_dict(torch.load("sl/policy_net.pt"))
-        bmcs = BMCS(belief_net, policy_net, [], r_max=50, p_max=50)
-        return BMCSAgent(0, 9, bmcs)
+        bmcs = BMCS(belief_net, policy_net, [], r_max=25, p_max=25)
+        return BMCSAgent(0, 9, bmcs, use_ground_truth=use_ground_truth)
 
-    def qagent(warmup: int = 1_000):
-        qagent = QLearner(0, num_actions=9)
+    def qagent_warmup(warmup: int = 1_000):
+        q = QLearner(0, num_actions=9)
+        r = RandomAgent(0, num_actions=9)
+        agents = [q, r]
         env = Environment("tiny_bridge_4p")
         for _ in trange(warmup, desc="warming up q learner"):
             t_s = env.reset()
             while not t_s.last():
                 player_id = t_s.current_player()
-                qagent._player_id = player_id
-                agent_output = qagent.step(t_s)
+                agent = agents[player_id % 2]
+                agent._player_id = player_id
+                agent_output = agent.step(t_s)
                 if agent_output is None:
                     raise ValueError("got unexpected None output")
                 t_s = env.step([agent_output.action])
-            qagent.step(t_s)
+            for a in agents:
+                a.step(t_s)
+        return q
 
-        return qagent
+    QAGENT_WU_STEPS = 20_000
+    q = qagent_warmup(QAGENT_WU_STEPS)
 
-    # num_runs = 10_000  # matches paper
-    num_runs = 1_000
+    def qagent():
+        return q
 
-    # s = Scorer(prlagent(), ragent())
-    # print(f"A: RL, B: RAND = {s.score(num_runs)}")
+    num_runs = 1
 
-    # s = Scorer(pslagent(), ragent())
-    # print(f"A: SL, B: RAND = {s.score(num_runs)}")
+    results = [f"EVALUATION: {num_runs} games"]
 
-    # s = Scorer(pslagent(), prlagent())
-    # print(f"A: SL, B: RL = {s.score(num_runs)}")
+    agents_to_eval = [
+        (ragent, "RAND"),
+        (pslagent, "SL"),
+        (qagent, f"Q({QAGENT_WU_STEPS})"),
+        (lambda: bmcsagent(use_ground_truth=False), "BMCS"),
+        (lambda: bmcsagent(use_ground_truth=True), "BMCS(gt)"),
+    ]
 
-    q = qagent(100_000)
+    n = len(agents_to_eval)
+    total = (n * (n - 1)) // 2
 
-    s = Scorer(q, ragent())
-    print(f"A: Q, B: RAND = {s.score(num_runs)}")
+    pbar = tqdm(
+        combinations(agents_to_eval, 2), total=total, desc="Evaluating agents..."
+    )
 
-    s = Scorer(q, pslagent())
-    print(f"A: Q, B: SL = {s.score(num_runs)}")
+    for (agent_a, a_name), (agent_b, b_name) in pbar:
+        s = Scorer(agent_a(), agent_b(), include_full_state=True)
+        score = s.score(num_runs)
+        score_str = f"A: {a_name} vs B: {b_name} = {score}"
+        results.append(score_str)
+        pbar.write(score_str)
 
-    # s = Scorer(bmcsagent(), prlagent())
-    # print(f"A: BMCS(SL), B: RAND = {s.score(num_runs)}")
+    with open("eval/results.txt", "w") as f:
+        f.write("\n".join(results))
