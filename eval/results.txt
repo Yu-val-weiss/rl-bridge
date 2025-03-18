@@ -1,0 +1,16 @@
+EVALUATION: 1000 games
+A: RAND vs B: SL = -0.715
+A: RAND vs B: Q(10000) = -0.113
+A: RAND vs B: MCTS = -2.702
+A: RAND vs B: BMCS = -0.671
+A: RAND vs B: BMCS(gt) = -0.698
+A: SL vs B: Q(10000) = 0.583
+A: SL vs B: MCTS = -0.341
+A: SL vs B: BMCS = 0.0
+A: SL vs B: BMCS(gt) = 0.0
+A: Q(10000) vs B: MCTS = -2.66
+A: Q(10000) vs B: BMCS = -0.628
+A: Q(10000) vs B: BMCS(gt) = -0.671
+A: MCTS vs B: BMCS = 0.393
+A: MCTS vs B: BMCS(gt) = 0.361
+A: BMCS vs B: BMCS(gt) = 0.0
