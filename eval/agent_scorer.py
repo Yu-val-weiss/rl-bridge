@@ -3,6 +3,7 @@ import logging
 import math
 import random
 from itertools import combinations
+from pathlib import Path
 from typing import Callable, NamedTuple
 
 import numpy as np
@@ -31,6 +32,9 @@ class EvalScore(NamedTuple):
     stdev: float
     conf_interval: tuple[float, float]
     conf_band: float
+
+    def __str__(self) -> str:
+        return f"μ: {self.mean:6f} ± {self.conf_band:.6f}, σ: {self.stdev:.6f}, [{self.conf_interval[0]:.6f}, {self.conf_interval[1]:.6f}]"
 
 
 class Scorer:
@@ -90,7 +94,7 @@ class Scorer:
 
         return time_step.rewards
 
-    def score(self, num_deals: int) -> EvalScore:
+    def score(self, num_deals: int) -> tuple[EvalScore, np.ndarray]:
         imps = np.zeros((num_deals, 2), dtype=int)
         for i in trange(num_deals, desc="playing games...", leave=False):
             init_step = self.env.reset()
@@ -121,8 +125,8 @@ class Scorer:
             mean=float(mean),
             stdev=float(std),
             conf_interval=interval,
-            conf_band=interval[1] - interval[0],
-        )
+            conf_band=abs(interval[1] - mean),
+        ), imps
 
 
 IMP_LOOKUP = [
@@ -228,7 +232,7 @@ if __name__ == "__main__":
         )
         return MCTSAgent(0, 9, bot)
 
-    num_runs = 1_000
+    num_runs = 10
 
     results = [f"EVALUATION: {num_runs} games"]
 
@@ -248,12 +252,18 @@ if __name__ == "__main__":
         combinations(agents_to_eval, 2), total=total, desc="Evaluating agents..."
     )
 
+    imp_results = {}
+    imp_dest = Path("eval/imp_arrs.npz")
+
     for (agent_a, a_name), (agent_b, b_name) in pbar:
         s = Scorer(agent_a(), agent_b(), include_full_state=True)
-        score = s.score(num_runs)
+        score, imp_arr = s.score(num_runs)
+        imp_results[f"{a_name.lower()}:{b_name.lower()}"] = imp_arr
         score_str = f"A: {a_name} vs B: {b_name} = {score}"
         results.append(score_str)
         pbar.write(score_str)
 
         with open("eval/results_w_extra_info.txt", "w") as f:
             f.write("\n".join(results))
+
+        np.savez_compressed(imp_dest, **imp_results)
