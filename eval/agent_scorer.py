@@ -232,7 +232,7 @@ if __name__ == "__main__":
         )
         return MCTSAgent(0, 9, bot)
 
-    num_runs = 10
+    num_runs = 1_000
 
     results = [f"EVALUATION: {num_runs} games"]
 
