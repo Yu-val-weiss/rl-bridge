@@ -3,8 +3,9 @@ import logging
 import math
 import random
 from itertools import combinations
-from typing import Callable
+from typing import Callable, NamedTuple
 
+import numpy as np
 import pyspiel
 import torch
 from open_spiel.python.algorithms.mcts import MCTSBot, RandomRolloutEvaluator
@@ -13,6 +14,7 @@ from open_spiel.python.algorithms.random_agent import RandomAgent
 from open_spiel.python.algorithms.tabular_qlearner import QLearner
 from open_spiel.python.rl_agent import AbstractAgent
 from open_spiel.python.rl_environment import Environment, TimeStep
+from scipy.stats import sem, t
 from tqdm import tqdm, trange
 
 from models import BeliefNetwork, PolicyNetwork
@@ -22,6 +24,13 @@ from .bmcs_agent import BMCSAgent
 from .policy_agent import PolicyAgent
 
 AgentFactory = Callable[[int], AbstractAgent]
+
+
+class EvalScore(NamedTuple):
+    mean: float
+    stdev: float
+    conf_interval: tuple[float, float]
+    conf_band: float
 
 
 class Scorer:
@@ -81,9 +90,9 @@ class Scorer:
 
         return time_step.rewards
 
-    def score(self, num_deals: int):
-        imps: list[tuple[int, int]] = []
-        for _ in trange(num_deals, desc="playing games...", leave=False):
+    def score(self, num_deals: int) -> EvalScore:
+        imps = np.zeros((num_deals, 2), dtype=int)
+        for i in trange(num_deals, desc="playing games...", leave=False):
             init_step = self.env.reset()
             init_state = copy.deepcopy(self.env.get_state)
 
@@ -101,11 +110,19 @@ class Scorer:
             self._shift_agents()
 
             # calculate imps, indices 0&2 and 1&3 are always the same score, so can use 0
-            imp = calc_imp(rewards[0], second_rewards[0])
-            imps.append(imp)
+            imps[i] = calc_imp(rewards[0], second_rewards[0])
 
-        a_imps, b_imps = zip(*imps)
-        return (sum(a_imps) - sum(b_imps)) / num_deals
+        a_imps, b_imps = imps[:, 0], imps[:, 1]
+        imp_diff = a_imps - b_imps
+        mean = np.mean(imp_diff)
+        std = np.std(imp_diff, ddof=1)
+        interval = t.interval(0.95, df=num_deals - 1, loc=mean, scale=sem(imp_diff))
+        return EvalScore(
+            mean=float(mean),
+            stdev=float(std),
+            conf_interval=interval,
+            conf_band=interval[1] - interval[0],
+        )
 
 
 IMP_LOOKUP = [
@@ -238,5 +255,5 @@ if __name__ == "__main__":
         results.append(score_str)
         pbar.write(score_str)
 
-        with open("eval/results.txt", "w") as f:
+        with open("eval/results_w_extra_info.txt", "w") as f:
             f.write("\n".join(results))
