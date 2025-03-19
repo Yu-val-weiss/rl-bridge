@@ -203,4 +203,25 @@ def train_sl(
 
 
 if __name__ == "__main__":
-    train_sl()
+    # train_sl()
+    _, val_set = load_dataset(pathlib.Path("sl/dataset.pt"), 512, 0.1)
+    net = PolicyNetwork(9, 84, 2048)
+    net.load_state_dict(torch.load("sl/policy_net.pt"))
+    correct = 0
+    total = 0
+
+    # Validation phase
+    net.eval()
+    for val_states, val_actions in val_set:
+        val_states = val_states.to(get_device())
+        val_actions = val_actions.to(get_device())
+
+        with torch.no_grad():
+            outputs = net(val_states)  # Get raw logits
+            predicted = torch.argmax(outputs, dim=1)  # Get predicted actions
+
+        correct += (predicted == val_actions).sum().item()
+        total += val_actions.size(0)
+
+    accuracy = correct / total
+    print(f"Validation Accuracy: {accuracy:.4f}")
