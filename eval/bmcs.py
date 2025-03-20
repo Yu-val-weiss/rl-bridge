@@ -6,7 +6,7 @@ import torch
 from open_spiel.python.rl_environment import Environment, TimeStep
 
 from models import BeliefNetwork, Network
-from utils import get_device
+from utils import get_device, mask_action_probs, random_argmax
 
 from .sampler import HandDealer
 
@@ -199,6 +199,9 @@ class BMCS:
             .detach()
             .numpy()
         )
+        action_probs = mask_action_probs(
+            action_probs, h.observations["legal_actions"][current_player]
+        )
         top_actions = np.argsort(action_probs)[-self.k :]
         valid_actions = [a for a in top_actions if action_probs[a] > self.p_min]
 
@@ -240,4 +243,4 @@ class BMCS:
         if R > self.r_min:
             return max(V, key=lambda x: V[x])
         else:
-            return int(np.argmax(action_probs))
+            return int(random_argmax(action_probs))
