@@ -1,3 +1,4 @@
+import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
@@ -5,6 +6,17 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from models import BeliefNetwork
+from utils import get_device
+
+matplotlib.rcParams["text.usetex"] = True
+matplotlib.rcParams["text.latex.preamble"] = "\n".join(
+    [
+        r"\usepackage{amsmath}",
+        r"\usepackage{amssymb}",
+        r"\usepackage{libertine}",
+        r"\usepackage{inconsolata}",
+    ]
+)
 
 
 def load_data(file_path: str):
@@ -40,10 +52,10 @@ def evaluate_model(data_path: str, model_path: str):
 
     with torch.no_grad():
         for batch_x, _ in test_loader:
-            outputs = model(batch_x)
+            outputs = model(batch_x.to(get_device()))
             all_predictions.append(outputs)
 
-    all_predictions = torch.cat(all_predictions, dim=0).numpy()
+    all_predictions = torch.cat(all_predictions, dim=0).cpu().numpy()
 
     # Prepare data for seaborn strip plot
     data = []
