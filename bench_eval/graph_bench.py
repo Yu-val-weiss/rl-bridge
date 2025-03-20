@@ -46,10 +46,14 @@ BMCS 100: Mean +- std dev: 966 ms +- 114 ms
 
     ax.set_xticks(range(10, 110, 10))
 
-    ax.set_title(r"Benchmarking the BMCS \texttt{search} function")
+    ax.set_title(
+        r"Benchmarking the BMCS \texttt{search} function", fontdict={"fontsize": 22}
+    )
 
-    ax.set_ylabel(r"Time per call / ms")
-    ax.set_xlabel(r"$\rho = R_{\max} = D_{\max}$")
+    ax.tick_params(labelsize=14)
+
+    ax.set_ylabel(r"Time per call / ms", fontdict={"size": 18})
+    ax.set_xlabel(r"$\rho = R_{\max} = D_{\max}$", fontdict={"size": 18})
 
     fig.savefig("bench_eval/bench.pdf")
 
