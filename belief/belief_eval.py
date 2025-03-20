@@ -66,7 +66,7 @@ def evaluate_model(data_path: str, model_path: str):
     df = pd.DataFrame(data, columns=["Output Element", "Prediction"])
 
     plt.figure(figsize=(12, 8))
-    sns.stripplot(x="Output Element", y="Prediction", data=df)
+    sns.stripplot(x="Output Element", y="Prediction", data=df, rasterized=True)
     plt.xlabel("Output Element", fontsize=14)
     plt.ylabel("Prediction", fontsize=14)
     plt.title("Predictions per Output Element on Test Set", fontsize=16)
