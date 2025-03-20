@@ -67,10 +67,11 @@ def evaluate_model(data_path: str, model_path: str):
 
     plt.figure(figsize=(12, 8))
     sns.stripplot(x="Output Element", y="Prediction", data=df, rasterized=True)
-    plt.xlabel("Output Element", fontsize=14)
-    plt.ylabel("Prediction", fontsize=14)
-    plt.title("Predictions per Output Element on Test Set", fontsize=16)
+    plt.xlabel("Output Element", fontsize=20)
+    plt.ylabel("Prediction", fontsize=20)
+    plt.title("Predictions per Output Element on Test Set", fontsize=22)
     plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tick_params(labelsize=18)
 
     plt.tight_layout()
     plt.savefig("belief/predictions_plot.pdf")
