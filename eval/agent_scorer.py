@@ -239,10 +239,11 @@ if __name__ == "__main__":
     agents_to_eval = [
         (ragent, "RAND"),
         (pslagent, "SL"),
-        (qagent, f"Q({QAGENT_WU_STEPS})"),
-        (mcts, "MCTS"),
-        (lambda: bmcsagent(use_ground_truth=False), "BMCS"),
-        (lambda: bmcsagent(use_ground_truth=True), "BMCS(gt)"),
+        (prlagent, "RL"),
+        # (qagent, f"Q({QAGENT_WU_STEPS})"),
+        # (mcts, "MCTS"),
+        # (lambda: bmcsagent(use_ground_truth=False), "BMCS"),
+        # (lambda: bmcsagent(use_ground_truth=True), "BMCS(gt)"),
     ]
 
     n = len(agents_to_eval)
@@ -253,7 +254,7 @@ if __name__ == "__main__":
     )
 
     imp_results = {}
-    imp_dest = Path("eval/imp_arrs.npz")
+    imp_dest = Path("eval/imp_arrs_polrl.npz")
 
     for (agent_a, a_name), (agent_b, b_name) in pbar:
         s = Scorer(agent_a(), agent_b(), include_full_state=True)
@@ -263,7 +264,7 @@ if __name__ == "__main__":
         results.append(score_str)
         pbar.write(score_str)
 
-        with open("eval/results_w_extra_info.txt", "w") as f:
+        with open("eval/results_w_extra_info_polrl.txt", "w") as f:
             f.write("\n".join(results))
 
         np.savez_compressed(imp_dest, **imp_results)
