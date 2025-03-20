@@ -55,6 +55,8 @@ BMCS 100: Mean +- std dev: 966 ms +- 114 ms
     ax.set_ylabel(r"Time per call / ms", fontdict={"size": 18})
     ax.set_xlabel(r"$\rho = R_{\max} = D_{\max}$", fontdict={"size": 18})
 
+    fig.tight_layout()
+
     fig.savefig("bench_eval/bench.pdf")
 
     plt.show()
